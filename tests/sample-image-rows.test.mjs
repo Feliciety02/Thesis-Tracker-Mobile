@@ -27,6 +27,7 @@ function fakeSheet() {
         getFormulas: () => Array.from({ length: height }, (_, i) => formulas[row - 1 + i].slice(col - 1, col - 1 + width)),
         getValue: () => rows[row - 1][col - 1],
         setValue(v) { rows[row - 1][col - 1] = v; return this; },
+        setValues(values) { for (let i = 0; i < height; i++) for (let j = 0; j < width; j++) rows[row - 1 + i][col - 1 + j] = values[i][j]; return this; },
         setFormula(v) { formulas[row - 1][col - 1] = v; rows[row - 1][col - 1] = 'Open image'; return this; },
         setFormulaR1C1(v) { formulas[row - 1][col - 1] = v; return this; },
         clearContent() { for (let i = 0; i < height; i++) for (let j = 0; j < width; j++) { rows[row - 1 + i][col - 1 + j] = ''; formulas[row - 1 + i][col - 1 + j] = ''; } return this; },
@@ -136,4 +137,24 @@ test('deleting one image updates its child row and parent count without touching
   assert.equal(sh.rows[5][13], 'Open image');
   assert.deepEqual(Array.from(patch.angles), [2]);
   assert.equal(patch.images[1].url, 'https://drive.google.com/file/d/2/view');
+});
+
+test('expense edits save together and preserve subtotal and receipt cells', () => {
+  const sh = fakeSheet();
+  sh.rows[2][0] = 'Old item';
+  sh.rows[2][4] = '₱70.00';
+  sh.formulas[2][4] = '=C3*D3';
+  sh.rows[2][10] = 'Receipt';
+  sh.formulas[2][10] = '=HYPERLINK("https://drive.google.com/file/d/receipt/view","Receipt")';
+  sh.rows[11][3] = 'TOTAL';
+  const app = contextFor(sh);
+  assert.equal(app.updateSupplyDetails(3, { item: 'New item', purpose: 'Field trip', qty: 2,
+    cost: 35, assigned: 'Fe Anne', bought: true, notes: 'Saved', category: 'Transport', date: '' }), true);
+  assert.equal(sh.rows[2][0], 'New item');
+  assert.equal(sh.rows[2][5], 'Fe Anne');
+  assert.equal(sh.rows[2][6], true);
+  assert.equal(sh.formulas[2][4], '=C3*D3');
+  assert.match(sh.formulas[2][10], /receipt\/view/);
+  assert.throws(() => app.updateSupplyDetails(3, { item: '', qty: 1, cost: 2 }), /Item name/);
+  assert.throws(() => app.updateSupplyDetails(3, { item: 'No', qty: -1, cost: 2 }), /cannot be negative/);
 });

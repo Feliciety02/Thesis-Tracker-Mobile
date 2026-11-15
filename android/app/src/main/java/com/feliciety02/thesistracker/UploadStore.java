@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -82,10 +83,15 @@ final class UploadStore {
     }
 
     static JSONObject next(Context context) throws IOException, JSONException {
+        return next(context, java.util.Collections.emptySet());
+    }
+
+    static JSONObject next(Context context, Set<String> skipped) throws IOException, JSONException {
         synchronized (LOCK) {
             for (File pending : list(folder(context, "pending"))) {
                 JSONObject job = read(pending);
                 if (job == null) continue;
+                if (skipped.contains(job.getString("key"))) continue;
                 JSONObject done = read(file(context, "done", job.getString("key")));
                 if (done != null && done.optLong("at") == job.optLong("at")) {
                     if (!pending.delete()) throw new IOException("Cannot clear completed upload");

@@ -797,23 +797,24 @@ img,svg,video,table{max-width:100%}
   .task .t-title{font-size:15px;line-height:1.35}
 }
 
-/* Expenses: one-line rows */
+/* Expenses: the item owns the first row; receipt actions wrap below it. */
 .exlist{gap:8px}
-.exc{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto;gap:4px 10px;align-items:center;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--leaf);border-radius:12px;padding:8px 6px 8px 12px}
+.exc{display:grid;grid-template-columns:32px minmax(0,1fr) auto 40px;gap:6px 10px;align-items:center;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--leaf);border-radius:12px;padding:10px 10px 10px 12px;min-width:0}
 .exc.sub{background:var(--ok-soft);border-color:transparent;border-left-color:var(--ok)}
 .exc.sub .ttl{color:var(--muted)}
 .exck{display:grid;place-items:center;width:32px;height:32px;cursor:pointer}
 .exck input{width:20px;height:20px;margin:0}
-.exm{min-width:0;cursor:pointer}
-.exm .ttl{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.exm .meta{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.exc .amt{font-variant-numeric:tabular-nums;white-space:nowrap}
-.exr{display:flex;align-items:center;font-size:0;gap:2px}
+.exm{min-width:0;cursor:pointer;overflow-wrap:anywhere}
+.exm .ttl{font-weight:700;font-size:15px;line-height:1.3}
+.exm .meta{font-size:12px;color:var(--muted);line-height:1.35;margin-top:2px}
+.exc .amt{font-variant-numeric:tabular-nums;white-space:nowrap;justify-self:end}
+.exr{grid-column:2/-1;display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;min-width:0;font-size:13px}
 .exr:empty{display:none}
 .exr .ic{width:20px;height:20px}
-.exr a,.exr .cam-btn,.exr .qchip{display:grid;place-items:center;width:36px;height:36px;padding:0;border-radius:50%;color:var(--brand);background:none;border:0}
-.exr .iconbtn:not(:first-child){display:none}
-.exc .iconbtn{width:36px;height:36px}
+.exr a,.exr .cam-btn,.exr .qchip{display:inline-flex;align-items:center;gap:4px;min-height:32px;padding:2px 4px;color:var(--brand);background:none;border:0;white-space:normal;text-align:left}
+.exr .iconbtn{width:32px;height:32px}
+.exc>.iconbtn{width:40px;height:40px;justify-self:end}
+@media(max-width:480px){.exc{grid-template-columns:32px minmax(0,1fr) 40px}.exc .amt{grid-column:2;grid-row:2;justify-self:start}.exc>.iconbtn{grid-column:3;grid-row:1/3}.exr{grid-column:2/-1}}
 
 /* Best run per model: stacked on phones */
 .bestcards{display:none}
@@ -1346,7 +1347,7 @@ const Demo = (() => {
 /* =========================================================
    State + helpers
    ========================================================= */
-const S = { user: null, data: null, view: 'overview', member: 'All', status: 'Open', q: '', revOwner: 'All', revStatus: 'NC', panelTab: 'rev', revSelecting: false, ngFilter: 'All', sampleFilter: null, editTask: null, revSel: {}, paperOpen: false, addTaskOpen: false, addExpOpen: false, cam: null, uploading: {}, waiting: {}, queued: {}, redo: {}, preparing: {}, thumbs: {}, previews: {}, shots: {}, phonePending: {}, issues: {}, open: {}, more: 'training', ov: null, gallery: false, photoIndex: null };
+const S = { user: null, data: null, view: 'overview', member: 'All', status: 'Open', q: '', revOwner: 'All', revStatus: 'NC', panelTab: 'rev', revSelecting: false, ngFilter: 'All', sampleFilter: null, editTask: null, revSel: {}, paperOpen: false, addTaskOpen: false, addExpOpen: false, cam: null, uploading: {}, waiting: {}, queued: {}, uploadErrors: {}, serverPhotoLimit: 0, redo: {}, preparing: {}, thumbs: {}, previews: {}, shots: {}, phonePending: {}, issues: {}, open: {}, more: 'training', ov: null, gallery: false, photoIndex: null };
 const VIEWS = [['overview','Home'],['tasks','Tasks'],['revisions','Panel'],['samples','Samples'],['supplies','Expenses']];
 const MORE = [['training', 'Training runs', 'table_chart'], ['sources', 'Dataset sources', 'dataset'], ['consults', 'Consultations', 'school'], ['defense', 'Final defense', 'event'], ['links', 'Links', 'link']];
 const recs = kind => ((S.data && S.data.records) || {})[kind] || [];
@@ -1426,7 +1427,9 @@ function load(quiet) {
       d.samples.push(x);
       if (x.date) call('createSample', x.id, x.date).then(r => { const y = sampleById(x.id); if (y && r) { y.row = r.row; persist(); } }).catch(() => {});
     });
-    S.data = d; setOffline(false); persist();
+    S.data = d;
+    S.serverPhotoLimit = Array.isArray(d.photoAngles) ? d.photoAngles.length : 0;
+    setOffline(false); persist();
     if (!quiet || !isTyping()) render();
     renderCam();
   }).catch(e => {
@@ -1575,7 +1578,8 @@ function updateSyncChip() {
   const el = document.getElementById('syncChip');
   if (!el) return;
   el.hidden = !n;
-  el.title = n + ' change' + (n > 1 ? 's' : '') + ' waiting to sync';
+  const errors = Object.values(S.uploadErrors).filter(Boolean);
+  el.title = errors.length ? errors.length + ' upload error(s): ' + errors[0] : n + ' change' + (n > 1 ? 's' : '') + ' waiting to sync';
   if (navigator.onLine && (flushing || Object.keys(S.uploading).length)) el.innerHTML = SPIN + '<span class="lng">Syncing </span>' + n;
   else el.innerHTML = '' + ic('hourglass_empty') + ' ' + n + '<span class="lng"> to sync</span>';
 }
@@ -2166,7 +2170,11 @@ function vSamples() {
   if (nInvalid) tabs.push(['invalid', 'Invalid', nInvalid]);
   tabs.push(['all', 'All', pool.length]);
   const stage = tabs.some(t => t[0] === S.smpStage) ? S.smpStage : 'todo';
-  const lp = leafProgress(), qn = Object.keys(S.queued).length;
+  const lp = leafProgress(), qn = Object.keys(S.queued).filter(k => !k.startsWith('rcpt_')).length;
+  const errors = Object.values(S.uploadErrors).filter(Boolean);
+  const uploadProblem = S.serverPhotoLimit && S.serverPhotoLimit < MAX_ANGLES
+    ? 'The live tracker server accepts only ' + S.serverPhotoLimit + ' photos per leaf. Update and redeploy the Apps Script for all five photos.'
+    : errors.length ? 'Drive upload error: ' + errors[0] : '';
   const today = pool.filter(x => x.date === localDay()).length;
 
   const whoSel = '<select class="ownsel" data-change="smpWho" aria-label="Whose samples">' + [me, ...TEAM.map(t => t.tab).filter(t => t !== me), 'All'].map(t =>
@@ -2177,7 +2185,8 @@ function vSamples() {
       '<div class="' + (pool.some(x => freshness(x).st === 'today') ? 'bad' : '') + '"><b>' + pool.filter(x => ['today', 'tomorrow'].indexOf(freshness(x).st) > -1).length + '</b><span>to send</span></div>' +
       '<div><b>' + lp.done + (lp.goal ? '<small>/' + lp.goal + '</small>' : '') + '</b><span>team leaves</span></div></div>' +
       (lp.goal ? '<div class="bar"><i style="width:' + lp.p + '%"></i></div>' : '') +
-      (qn ? '<div class="small" style="margin-top:8px">' + ic('cloud_off') + ' ' + qn + ' photo' + (qn > 1 ? 's' : '') + ' saved on this phone, uploading when there\'s signal</div>' : '') +
+      (qn ? '<div class="small" style="margin-top:8px">' + ic('cloud_off') + ' ' + qn + ' photo' + (qn > 1 ? 's' : '') + ' saved on this phone, waiting for Drive confirmation</div>' : '') +
+      (uploadProblem ? '<div class="small" role="alert" style="margin-top:8px;color:var(--red)">' + ic('error') + ' ' + esc(uploadProblem) + '</div>' : '') +
       (!IS_PHONE ? '<div class="small muted" style="margin-top:8px">' + ic('visibility') + ' Take photos with the app on your phone. Everything else can be updated here.</div>' : '') + '</div>';
 
   // the farm checklist goes on top only until you start collecting today
@@ -2445,8 +2454,10 @@ function photoStatusLine(x) {
   const prep = states.filter(s => s === 'prep').length, up = states.filter(s => s === 'up').length;
   const q = states.filter(s => s === 'q').length;
   const done = states.filter(s => s === 'done').length;
+  const error = Object.keys(S.uploadErrors).find(k => k.startsWith(x.id + '_') && S.uploadErrors[k]);
   return [prep && SPIN + 'Preparing ' + prep, up && SPIN + 'Uploading ' + up,
-    q && ic('cloud_off') + ' ' + q + ' waiting for Drive', done && ic('check') + ' ' + done + ' saved to Drive']
+    q && ic('cloud_off') + ' ' + q + ' waiting for Drive', done && ic('check') + ' ' + done + ' saved to Drive',
+    error && ic('error') + ' ' + esc(S.uploadErrors[error])]
     .filter(Boolean).join(' · ');
 }
 let camStream = null;
@@ -2738,6 +2749,7 @@ function preparedNativeJob(job) {
 }
 async function queuePhotoJob(job) {
   const key = jobKey(job);
+  delete S.uploadErrors[key];
   if (nativeUploadAvailable()) {
     try {
       if (!await nativeSessionReady) throw new Error('Upload session unavailable');
@@ -2770,6 +2782,7 @@ async function syncNativePhotos() {
         await PhotoQ.delStrict(done.key);
         byKey.delete(done.key);
         delete S.queued[done.key];
+        delete S.uploadErrors[done.key];
         changed = true;
         toast('Google Drive upload successful' + (job.kind === 'receipt' ? ': receipt' : ': ' + fname(job.id, job.angle)), 2800);
       }
@@ -2779,6 +2792,10 @@ async function syncNativePhotos() {
       const key = jobKey(job), prior = pending.get(key);
       if (!S.queued[key]) changed = true;
       S.queued[key] = job;
+      const error = prior && prior.error || '';
+      if ((S.uploadErrors[key] || '') !== error) changed = true;
+      if (error) S.uploadErrors[key] = error;
+      else delete S.uploadErrors[key];
       if (S.uploading[key] || S.waiting[key]) continue;
       if (!prior || Number(prior.at) !== Number(job.at)) await window.ThesisBackgroundUpload.enqueue(preparedNativeJob(job));
       else if (driveAuthorizationMissing({ message: prior.error })) toastDriveAuthorizationProblem();
@@ -2822,11 +2839,13 @@ async function sendPhoto(job) {
     const patch = await call('uploadPhoto', job.id, job.angle, job.b64, job.date || (sm ? sm.date : ''), job.at || Date.now());
     if (sm && patch) { Object.assign(sm, patch); persist(); }
     if (!S.redo[key]) await PhotoQ.del(key);
+    delete S.uploadErrors[key];
     driveAuthorizationNoticeShown = false;
     toast('Google Drive upload successful: ' + fname(job.id, job.angle), 2800);
   } catch (e) {
     if (e.auth) { delete S.uploading[key]; lock(e.message); return; }
     S.queued[key] = job;
+    S.uploadErrors[key] = e.network ? '' : String(e.message || e);
     if (driveAuthorizationMissing(e)) toastDriveAuthorizationProblem();
     else toast(e.network ? fname(job.id, job.angle) + ' is waiting on this phone and will upload when the connection returns.' : 'Drive upload failed for ' + fname(job.id, job.angle) + ': ' + (e.message || e) + '. It remains queued.', 5000, !e.network);
   }
@@ -2841,11 +2860,13 @@ async function sendReceipt(job, key) {
     const x = S.data && S.data.supplies.find(s => s.row === job.row);
     if (x && patch) { Object.assign(x, patch); persist(); }
     if (!S.redo[key]) await PhotoQ.del(key);
+    delete S.uploadErrors[key];
     driveAuthorizationNoticeShown = false;
     toast('Google Drive upload successful: receipt', 2800);
   } catch (e) {
     if (e.auth) { delete S.uploading[key]; lock(e.message); return; }
     S.queued[key] = job;
+    S.uploadErrors[key] = e.network ? '' : String(e.message || e);
     if (driveAuthorizationMissing(e)) toastDriveAuthorizationProblem();
     else toast(e.network ? 'Receipt is waiting on this phone and will upload when the connection returns.' : 'Receipt Drive upload failed: ' + (e.message || e) + '. It remains queued.', 5000, !e.network);
   }
@@ -2943,6 +2964,45 @@ document.getElementById('camInput').addEventListener('change', async e => {
 /* ---------- Expenses (everyone adds what they bought or paid for; optional receipt photo) ---------- */
 function expenseTotal(s) { return (Number(s.qty) || 0) * (Number(s.cost) || 0); }
 function receiptKey(row) { return 'rcpt_' + row; }
+async function saveExpenseChanges(row, details) {
+  const item = S.data.supplies.find(s => s.row === row);
+  if (!item) return false;
+  const changes = Object.entries(details).filter(([field, value]) => item[field] !== value);
+  const finish = (queued) => {
+    Object.assign(S.data.supplies.find(s => s.row === row) || item, details);
+    S.open['exp_' + row] = false;
+    persist(); render();
+    toast(queued ? 'Saved on this phone. Expense changes will sync when the server is available.' : 'Expense saved', 3000);
+    if (!queued && !DEMO) setTimeout(checkLive, 1500);
+    return true;
+  };
+  const queueFrom = i => {
+    const jobs = changes.slice(i).map(([field, value]) => ({ fn: 'updateSupply', args: [row, field, value], user: S.user, at: Date.now() }));
+    setOutbox(outbox().concat(jobs));
+    return finish(true);
+  };
+  const fail = e => {
+    if (e.auth) lock(e.message);
+    else { toast('Could not save expense: ' + (e.message || e), 5000, true); load(true); }
+    return false;
+  };
+  if (!changes.length) return finish(false);
+  if (!DEMO && (!navigator.onLine || outbox().length)) return queueFrom(0);
+  try {
+    await call('updateSupplyDetails', row, details);
+    return finish(false);
+  } catch (e) {
+    if (e.network) return queueFrom(0);
+    if (!/^Unknown action: updateSupplyDetails/.test(e.message || '')) return fail(e);
+  }
+  // Older deployments support single-field updates. Keep the editor usable until the new script is deployed.
+  for (let i = 0; i < changes.length; i++) {
+    const [field, value] = changes[i];
+    try { await call('updateSupply', row, field, value); }
+    catch (e) { return e.network ? queueFrom(i) : fail(e); }
+  }
+  return finish(false);
+}
 function vSupplies() {
   const d = S.data, ppl = TEAM.map(m => m.tab), cats = d.lists.expenseCategories || ['Sample collection', 'Printing', 'Transport', 'Food', 'Materials', 'Fees', 'Other'];
   const all = d.supplies.filter(s => s.item);
@@ -2958,10 +3018,12 @@ function vSupplies() {
   const card = s => {
     const dis = s.tempId ? ' disabled' : '';
     const at = 'data-change="supply" data-row="' + s.row + '"' + dis;
+    const editAt = 'data-field=';
     const rk = receiptKey(s.row), rq = S.queued[rk], rup = S.uploading[rk] || S.waiting[rk] || S.preparing[rk];
     const receiptBtn = s.tempId || (!s.bought && !s.receipt && !rq && !rup) ? '' : rup ? '<span class="qchip">' + SPIN + 'Uploading receipt</span>' : rq ? '<span class="qchip">' + ic('cloud_off') + ' receipt saved on phone</span>' :
       s.receipt ? '<a class="rcpt" href="' + esc(s.receipt) + '" target="_blank" rel="noopener">' + ic('receipt_long') + ' Receipt</a><button class="iconbtn" data-action="receipt" data-row="' + s.row + '" title="Replace receipt" aria-label="Replace receipt">' + (IS_PHONE ? '' + ic('photo_camera') + '' : '' + ic('upload') + '') + '</button>' :
       '<button class="cam-btn none" data-action="receipt" data-row="' + s.row + '">' + (IS_PHONE ? '' + ic('photo_camera') + ' Receipt' : '' + ic('upload') + ' Upload receipt') + '</button>';
+    const receiptError = S.uploadErrors[rk] ? '<span class="small" role="alert" style="color:var(--red)">' + esc(S.uploadErrors[rk]) + '</span>' : '';
     const phoneReceipt = IS_PHONE && ((S.phonePending[rk] || []).length || shotsFor(rk).length)
       ? '<button class="linkbtn" data-action="gallerySave" data-id="' + rk + '">' + (isIOS ? 'Save receipt to Photos' : 'Download receipt') + '</button>' +
         ((S.phonePending[rk] || []).length ? '<button class="linkbtn" data-action="galleryConfirmed" data-id="' + rk + '">I checked it is on this phone</button>' : '') : '';
@@ -2975,23 +3037,24 @@ function vSupplies() {
       '<label class="exck" title="' + (s.bought ? 'Paid' : 'To buy') + '"><input type="checkbox" ' + (s.bought ? 'checked' : '') + ' ' + at + ' data-field="bought" aria-label="Paid: ' + esc(s.item) + '"></label>' +
       '<div class="exm" data-action="toggleCard" data-v="' + esc(key) + '" role="button" tabindex="0"><div class="ttl">' + esc(s.item) + '</div><div class="meta">' + shortMeta + '</div></div>' +
       (s.tempId ? '<span class="qchip">' + ic('hourglass_empty') + '</span>' : '<b class="amt">' + (s.cost !== '' && s.cost != null ? peso(expenseTotal(s)) : '—') + '</b>') +
-      '<div class="exr">' + receiptBtn + phoneReceipt + chooseReceiptBtn + '</div>' +
+      '<div class="exr">' + receiptBtn + receiptError + phoneReceipt + chooseReceiptBtn + '</div>' +
       (s.tempId ? '' : '<button class="iconbtn" data-action="toggleCard" data-v="' + esc(key) + '" aria-expanded="false" aria-label="Edit ' + esc(s.item) + '" title="Edit">' + ic('edit') + '</button>') + '</div>';
-    return '<div class="sc supc' + (s.bought ? ' sub' : '') + '" style="--c:var(--leaf)">' +
-      '<div class="sc-top"><label class="ck big"><input type="checkbox" ' + (s.bought ? 'checked' : '') + ' ' + at + ' data-field="bought" aria-label="Paid">' + (s.bought ? 'Paid' : 'To buy') + '</label>' +
+    return '<div class="sc supc' + (s.bought ? ' sub' : '') + '" style="--c:var(--leaf)" data-expense-edit="' + s.row + '">' +
+      '<div class="sc-top"><label class="ck big"><input type="checkbox" ' + (s.bought ? 'checked' : '') + ' data-field="bought" aria-label="Paid">' + (s.bought ? 'Paid' : 'To buy') + '</label>' +
         '<span class="sp"></span>' + (s.tempId ? '<span class="qchip">' + ic('hourglass_empty') + ' waiting to sync</span>' : '<b>' + (s.cost !== '' && s.cost != null ? peso(expenseTotal(s)) : '—') + '</b>') +
         '<button class="iconbtn" data-action="delSupply" data-row="' + s.row + '"' + dis + ' aria-label="Delete ' + esc(s.item) + '" title="Delete">' + ic('delete') + '</button></div>' +
       '<div class="sc-grid">' +
-        '<label class="wide">Item<input type="text" value="' + esc(s.item) + '" ' + at + ' data-field="item"></label>' +
-        '<label>Category' + sel(cats, s.category, at + ' data-field="category"', 'Choose…') + '</label>' +
-        '<label>Date<input type="date" value="' + esc(s.date) + '" ' + at + ' data-field="date"></label>' +
-        '<label>Qty<input type="number" min="0" value="' + esc(s.qty) + '" ' + at + ' data-field="qty"></label>' +
-        '<label>Unit cost (₱)<input type="number" min="0" step="0.01" value="' + esc(s.cost) + '" ' + at + ' data-field="cost"></label>' +
-        '<label>Paid by / buyer' + sel(ppl, s.assigned, at + ' data-field="assigned"', 'Nobody yet') + '</label>' +
-        '<label>Purpose<input type="text" value="' + esc(s.purpose) + '" placeholder="What it\'s for" ' + at + ' data-field="purpose"></label>' +
-        '<label class="wide">Notes<input type="text" value="' + esc(s.notes) + '" ' + at + ' data-field="notes"></label>' +
+        '<label class="wide">Item<input type="text" value="' + esc(s.item) + '" ' + editAt + '"item" required></label>' +
+        '<label>Category' + sel(cats, s.category, editAt + '"category"', 'Choose…') + '</label>' +
+        '<label>Date<input type="date" value="' + esc(s.date) + '" ' + editAt + '"date"></label>' +
+        '<label>Qty<input type="number" min="0" value="' + esc(s.qty) + '" ' + editAt + '"qty"></label>' +
+        '<label>Unit cost (₱)<input type="number" min="0" step="0.01" value="' + esc(s.cost) + '" ' + editAt + '"cost"></label>' +
+        '<label>Paid by / buyer' + sel(ppl, s.assigned, editAt + '"assigned"', 'Nobody yet') + '</label>' +
+        '<label>Purpose<input type="text" value="' + esc(s.purpose) + '" placeholder="What it\'s for" ' + editAt + '"purpose"></label>' +
+        '<label class="wide">Notes<input type="text" value="' + esc(s.notes) + '" ' + editAt + '"notes"></label>' +
       '</div>' +
-      '<div class="sc-foot">' + receiptBtn + phoneReceipt + chooseReceiptBtn + toggle + '</div></div>';
+      '<div class="sc-foot">' + receiptBtn + receiptError + phoneReceipt + chooseReceiptBtn + '<span class="sp"></span>' +
+        '<button class="btn" data-action="saveExpense" data-row="' + s.row + '"' + dis + '>' + ic('check') + ' Save changes</button>' + toggle + '</div></div>';
   };
   return '<div class="ptitle"><h2>Expenses</h2></div>' +
     '<div class="card expsum"><div class="es"><div><span class="k">Spent</span><b>' + peso(sum(paid)) + '</b><span class="small muted">' + paid.length + ' paid</span></div>' +
@@ -3498,6 +3561,24 @@ document.addEventListener('click', e => {
   else if (a === 'receipt') { takeReceipt(+el.dataset.row); }
   else if (a === 'receiptGallery') { takeReceipt(+el.dataset.row, true); }
   else if (a === 'expFilter') { S.expFilter = v; render(); }
+  else if (a === 'saveExpense') {
+    const row = +el.dataset.row, card = el.closest('[data-expense-edit]');
+    const item = S.data.supplies.find(s => s.row === row);
+    if (!card || !item) return;
+    const field = name => card.querySelector('[data-field="' + name + '"]');
+    const details = { item: field('item').value.trim(), category: field('category').value,
+      date: field('date').value, qty: field('qty').value === '' ? '' : Number(field('qty').value),
+      cost: field('cost').value === '' ? '' : Number(field('cost').value),
+      assigned: field('assigned').value, purpose: field('purpose').value.trim(),
+      notes: field('notes').value.trim(), bought: field('bought').checked };
+    if (!details.item) { field('item').focus(); toast('Enter an item name.', 2500, true); return; }
+    if ((details.qty !== '' && (!Number.isFinite(details.qty) || details.qty < 0)) ||
+        (details.cost !== '' && (!Number.isFinite(details.cost) || details.cost < 0))) {
+      toast('Quantity and cost cannot be negative.', 3000, true); return;
+    }
+    el.disabled = true;
+    saveExpenseChanges(row, details).then(saved => { if (!saved && el.isConnected) el.disabled = false; });
+  }
   else if (a === 'delSupply') {
     const row = +el.dataset.row, x = S.data.supplies.find(s => s.row === row);
     if (!confirm('Delete "' + x.item + '" from expenses?')) return;

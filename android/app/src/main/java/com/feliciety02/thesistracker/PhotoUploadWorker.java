@@ -17,6 +17,8 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -50,26 +52,28 @@ public final class PhotoUploadWorker extends Worker {
         if (token.isEmpty() || url.isEmpty()) return Result.success(); // sign in again; keep the photos
         try {
             JSONObject job;
-            while (!isStopped() && (job = UploadStore.next(context)) != null) {
-                if (job.optBoolean("firstCapture") && job.optString("date", "").matches("\\d{4}-\\d{2}-\\d{2}")) {
-                    JSONArray dateArgs = new JSONArray();
-                    dateArgs.put(job.getString("id"));
-                    dateArgs.put("date");
-                    dateArgs.put(job.getString("date"));
-                    JSONObject dateResponse = postRequest(url, token, "updateSample", dateArgs);
-                    if (!dateResponse.optBoolean("ok")) {
-                        UploadStore.markError(context, job, dateResponse.optString("error", "Could not save capture date"));
-                        return Result.retry();
+            Set<String> failed = new HashSet<>();
+            while (!isStopped() && (job = UploadStore.next(context, failed)) != null) {
+                try {
+                    if (job.optBoolean("firstCapture") && job.optString("date", "").matches("\\d{4}-\\d{2}-\\d{2}")) {
+                        JSONArray dateArgs = new JSONArray();
+                        dateArgs.put(job.getString("id"));
+                        dateArgs.put("date");
+                        dateArgs.put(job.getString("date"));
+                        JSONObject dateResponse = postRequest(url, token, "updateSample", dateArgs);
+                        if (!dateResponse.optBoolean("ok"))
+                            throw new IOException(dateResponse.optString("error", "Could not save capture date"));
                     }
+                    JSONObject response = post(url, token, job);
+                    if (!response.optBoolean("ok"))
+                        throw new IOException(response.optString("error", "Google Drive upload failed"));
+                    UploadStore.complete(context, job, response.optJSONObject("data"));
+                } catch (Exception error) {
+                    UploadStore.markError(context, job, error.getMessage() == null ? error.toString() : error.getMessage());
+                    failed.add(job.getString("key"));
                 }
-                JSONObject response = post(url, token, job);
-                if (!response.optBoolean("ok")) {
-                    UploadStore.markError(context, job, response.optString("error", "Google Drive upload failed"));
-                    return Result.retry();
-                }
-                UploadStore.complete(context, job, response.optJSONObject("data"));
             }
-            return isStopped() ? Result.retry() : Result.success();
+            return isStopped() || !failed.isEmpty() ? Result.retry() : Result.success();
         } catch (Exception e) {
             return Result.retry();
         }

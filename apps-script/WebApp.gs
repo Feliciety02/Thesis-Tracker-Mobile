@@ -51,7 +51,7 @@ function doPost(e) {
     CURRENT_USER = user;
     const actions = {
       getData: getData, updateTask: updateTask, addTask: addTask, updateRevision: updateRevision,
-      updateSample: updateSample, updateSupply: updateSupply, setRcpcDate: setRcpcDate,
+      updateSample: updateSample, updateSupply: updateSupply, updateSupplyDetails: updateSupplyDetails, setRcpcDate: setRcpcDate,
       uploadPhoto: uploadPhoto, createSample: createSample, exportValidatedDataset: exportValidatedDataset,
       updateRevisions: updateRevisions, rescheduleTasks: rescheduleTasks,
       deleteTask: deleteTask, addSupply: addSupply, deleteSupply: deleteSupply, uploadReceipt: uploadReceipt,
@@ -532,6 +532,29 @@ function updateSupply(row, field, value) {
   });
 }
 
+/** Save the expense editor as one change, without touching subtotal formulas or receipt links. */
+function updateSupplyDetails(row, details) {
+  row = Number(row);
+  details = details || {};
+  const item = String(details.item || '').trim();
+  if (!item) throw new Error('Item name is required');
+  const qty = details.qty === '' || details.qty == null ? '' : Number(details.qty);
+  const cost = details.cost === '' || details.cost == null ? '' : Number(details.cost);
+  if ((qty !== '' && (!isFinite(qty) || qty < 0)) ||
+      (cost !== '' && (!isFinite(cost) || cost < 0))) throw new Error('Quantity and cost cannot be negative');
+  const date = details.date ? parseDate_(details.date) : '';
+  return withLock_(() => {
+    const sh = sheet_('Expenses');
+    if (row < 3 || row >= suppliesTotalRow_(sh) || !sh.getRange(row, 1).getValue())
+      throw new Error('That expense no longer exists');
+    sh.getRange(row, 1, 1, 4).setValues([[item, String(details.purpose || ''), qty, cost]]);
+    sh.getRange(row, 6, 1, 4).setValues([[String(details.assigned || ''), details.bought === true,
+      String(details.notes || ''), String(details.category || '')]]);
+    sh.getRange(row, 10).setValue(date);
+    return true;
+  });
+}
+
 function addSupply(x) {
   if (!x || !String(x.item || '').trim()) throw new Error('Item name is required');
   return withLock_(() => {
@@ -709,10 +732,9 @@ function uploadPhoto(id, angle, b64, date, capturedAt) {
   const name = imageFileName_(id, angle);
   const previous = photoFilesFor_(id).filter(f => photoBase_(f.getName()) === name.replace(/\.jpg$/, ''));
   const file = folder.createFile(Utilities.newBlob(Utilities.base64Decode(String(b64).replace(/^data:image\/\w+;base64,/, '')), 'image/jpeg', name));
-  previous.forEach(f => f.setTrashed(true));   // only retire the old image after the new file exists
   const captured = Number(capturedAt) > 946684800000 && Number(capturedAt) < Date.now() + 86400000 ? new Date(Number(capturedAt)) : new Date();
 
-  return withLock_(() => {
+  const patch = withLock_(() => {
     const row = sampleRow_(sh, id);
     const cell = sh.getRange(row, 15);
     const angles = String(cell.getValue() || '').split(/[^0-9]+/).filter(String).map(Number);
@@ -730,6 +752,9 @@ function uploadPhoto(id, angle, b64, date, capturedAt) {
     sh.getRange(imageRow, 14).setFormula('=HYPERLINK("' + file.getUrl() + '","Open image")');
     return samplePhotoPatch_(sh, row, id);
   });
+  // A sheet error must leave the former photo intact. Cleanup cannot turn a confirmed upload into a retry.
+  previous.forEach(f => { try { f.setTrashed(true); } catch (e) { console.error(e); } });
+  return patch;
 }
 
 function samplePhotoPatch_(sh, row, id) {
@@ -962,13 +987,15 @@ function uploadReceipt(row, b64) {
   const day = Utilities.formatDate(v[9] instanceof Date ? v[9] : new Date(), tz, 'yyyy-MM-dd');
   const name = 'Receipt_row' + row + '_' + day + '_' + String(v[0]).replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 40) + (v[5] ? '_' + v[5] : '') + '.jpg';
   const folder = receiptFolder_();
-  const old = folder.getFiles();
-  while (old.hasNext()) { const f = old.next(); if (f.getName().indexOf('Receipt_row' + row + '_') === 0) f.setTrashed(true); }
+  const old = folder.getFiles(), previous = [];
+  while (old.hasNext()) { const f = old.next(); if (f.getName().indexOf('Receipt_row' + row + '_') === 0) previous.push(f); }
   const file = folder.createFile(Utilities.newBlob(Utilities.base64Decode(String(b64).replace(/^data:image\/\w+;base64,/, '')), 'image/jpeg', name));
-  return withLock_(() => {
+  const patch = withLock_(() => {
     sh.getRange(row, 11).setFormula('=HYPERLINK("' + file.getUrl() + '","Receipt")');
     return { receipt: file.getUrl() };
   });
+  previous.forEach(f => { try { f.setTrashed(true); } catch (e) { console.error(e); } });
+  return patch;
 }
 
 /* ---------- dataset export for training / the paper ---------- */
