@@ -1045,6 +1045,7 @@ body.noscroll{overflow:hidden}
     <nav id="nav"></nav>
   </div>
 </header>
+<div id="writeError" class="wrap" role="alert" hidden></div>
 
 <main><div class="wrap" id="app"><div class="loading"><div class="spinner"></div>Loading tracker…</div></div></main>
 <footer class="wrap" id="foot"><span id="syncInfo"></span> · <button class="linkbtn" data-action="logout">Log out</button></footer>
@@ -1347,7 +1348,7 @@ const Demo = (() => {
 /* =========================================================
    State + helpers
    ========================================================= */
-const S = { user: null, data: null, view: 'overview', member: 'All', status: 'Open', q: '', revOwner: 'All', revStatus: 'NC', panelTab: 'rev', revSelecting: false, ngFilter: 'All', sampleFilter: null, editTask: null, revSel: {}, paperOpen: false, addTaskOpen: false, addExpOpen: false, cam: null, uploading: {}, waiting: {}, queued: {}, uploadErrors: {}, serverPhotoLimit: 0, redo: {}, preparing: {}, thumbs: {}, previews: {}, shots: {}, phonePending: {}, issues: {}, open: {}, more: 'training', ov: null, gallery: false, photoIndex: null };
+const S = { user: null, data: null, view: 'overview', member: 'All', status: 'Open', q: '', revOwner: 'All', revStatus: 'NC', panelTab: 'rev', revSelecting: false, ngFilter: 'All', sampleFilter: null, editTask: null, revSel: {}, paperOpen: false, addTaskOpen: false, addExpOpen: false, cam: null, uploading: {}, waiting: {}, queued: {}, uploadErrors: {}, serverPhotoLimit: 0, galleryRecovery: null, galleryRecoveryFresh: false, galleryRecoveryChecked: false, redo: {}, preparing: {}, thumbs: {}, previews: {}, shots: {}, phonePending: {}, issues: {}, open: {}, more: 'training', ov: null, gallery: false, photoIndex: null };
 const VIEWS = [['overview','Home'],['tasks','Tasks'],['revisions','Panel'],['samples','Samples'],['supplies','Expenses']];
 const MORE = [['training', 'Training runs', 'table_chart'], ['sources', 'Dataset sources', 'dataset'], ['consults', 'Consultations', 'school'], ['defense', 'Final defense', 'event'], ['links', 'Links', 'link']];
 const recs = kind => ((S.data && S.data.records) || {})[kind] || [];
@@ -1429,10 +1430,16 @@ function load(quiet) {
     });
     S.data = d;
     S.serverPhotoLimit = Array.isArray(d.photoAngles) ? d.photoAngles.length : 0;
+    S.galleryRecoveryFresh = true;
     setOffline(false); persist();
     if (!quiet || !isTyping()) render();
     renderCam();
+    if (!S.galleryRecoveryChecked && nativeUploadAvailable() && window.ThesisBackgroundUpload.scanNamedPhotos) {
+      S.galleryRecoveryChecked = true;
+      recoverGalleryPhotos(false);
+    }
   }).catch(e => {
+    S.galleryRecoveryFresh = false;
     if (e.auth) { lock(e.message); return; }
     const c = cached();
     if (c || S.data) {
@@ -1542,8 +1549,9 @@ function logout() {
   setTimeout(() => lock(), 50);
 }
 function signIn(tab) {
+  if (S.user !== tab) { S.galleryRecoveryChecked = false; S.galleryRecoveryFresh = false; S.galleryRecovery = null; }
   S.user = tab; S.member = tab;
-  if (nativeUploadAvailable()) nativeSessionReady = window.ThesisBackgroundUpload.setSession(store.get(TOKEN_STORE) || '', API_URL).then(() => true, () => false);
+  if (nativeUploadAvailable()) nativeSessionReady = window.ThesisBackgroundUpload.setSession(store.get(TOKEN_STORE) || '', API_URL, tab).then(() => true, () => false);
   document.getElementById('login').hidden = true;
   const m = TEAM.find(x => x.tab === tab);
   const me = document.getElementById('meChip');
@@ -1574,22 +1582,40 @@ const SPIN = '<span class="spin-i" aria-hidden="true"></span>';
 // button label while waiting: spinner + short text, and the button can't be tapped twice
 const busyBtn = (busy, label, busyLabel) => busy ? ' disabled aria-busy="true">' + SPIN + busyLabel : '>' + label;
 function updateSyncChip() {
-  const n = outbox().length + Object.keys(S.queued).length + Object.keys(S.waiting).length + Object.keys(S.uploading).length;
+  const writes = outbox(), n = writes.length + Object.keys(S.queued).length + Object.keys(S.waiting).length + Object.keys(S.uploading).length;
+  const blocked = writes[0] && writes[0].error;
+  const errorBar = document.getElementById('writeError');
+  if (errorBar) {
+    errorBar.hidden = !blocked;
+    if (blocked) errorBar.innerHTML = '<div class="card" style="margin:8px 0;padding:12px;border-color:var(--red)"><b>Change waiting to sync</b><div class="small">' +
+      esc(writes[0].fn + ': ' + blocked) + '</div><button class="linkbtn" data-action="retryWrite">Retry</button> · ' +
+      '<button class="linkbtn" data-action="discardWrite">Discard this change</button></div>';
+  }
   const el = document.getElementById('syncChip');
   if (!el) return;
   el.hidden = !n;
   const errors = Object.values(S.uploadErrors).filter(Boolean);
-  el.title = errors.length ? errors.length + ' upload error(s): ' + errors[0] : n + ' change' + (n > 1 ? 's' : '') + ' waiting to sync';
+  el.title = blocked ? 'A change needs attention: ' + blocked : errors.length ? errors.length + ' upload error(s): ' + errors[0] : n + ' change' + (n > 1 ? 's' : '') + ' waiting to sync';
   if (navigator.onLine && (flushing || Object.keys(S.uploading).length)) el.innerHTML = SPIN + '<span class="lng">Syncing </span>' + n;
   else el.innerHTML = '' + ic('hourglass_empty') + ' ' + n + '<span class="lng"> to sync</span>';
 }
-function flushOutbox() {
+function flushOutbox(force) {
   if (flushing) return flushing;
   if (DEMO || !navigator.onLine || !outbox().length) return Promise.resolve();
   flushing = (async () => { updateSyncChip();
     let synced = 0;
     while (outbox().length) {
       const job = outbox()[0];
+      if (job.user === S.user && /^Sign in as /.test(job.error || '')) {
+        delete job.error;
+        const a = outbox(); a[0] = job; setOutbox(a);
+      }
+      if (job.error && !force) break;
+      if (job.user && job.user !== S.user) {
+        job.error = 'Sign in as ' + job.user + ' to send this change.';
+        const a = outbox(); a[0] = job; setOutbox(a);
+        break;
+      }
       try {
         const res = await call(job.fn, ...job.args);
         if (job.fn === 'addSupply' && res && job.tempId) {
@@ -1608,19 +1634,28 @@ function flushOutbox() {
       } catch (e) {
         if (e.auth) { lock(e.message); break; }    // signed out: keep it for after sign-in
         if (e.network) break;                      // still no signal: keep it, try again later
-        toast('One change could not sync: ' + e.message, 4000, true);  // server refused it: drop it
+        job.error = e.message || String(e);
+        const a = outbox(); a[0] = job; setOutbox(a);
+        toast('A change could not sync. It is still saved on this phone.', 5000, true);
+        break;
       }
       const a = outbox(); a.shift(); setOutbox(a);
+      if (job.fn === 'deleteSample') await finishSamplePhoneDeletion(job.args[0]);
+      if (job.fn === 'deleteSupply') await finishSupplyPhoneDeletion(job.args[0]);
     }
     if (synced) { persist(); toast('Synced ' + synced + ' change' + (synced > 1 ? 's' : '') + '', 1800); }
   })().finally(() => { flushing = null; updateSyncChip(); });
   return flushing;
 }
 
+const SAVE_FAILED = Symbol('save failed');
+function createRequestId() {
+  return globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() :
+    Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
 function save(fn, args, apply, onQueued) {
   if (apply) apply();
-  persist();
-  if (!isTyping()) render();
+  if (apply) { persist(); if (!isTyping()) render(); }
   const queue = () => { const meta = onQueued ? onQueued() : null; queueWrite(fn, args, meta); persist(); if (!isTyping()) render(); return null; };
   if (!DEMO && (!navigator.onLine || outbox().length)) return Promise.resolve(queue());   // keep changes in order
   toast('Saving…');
@@ -1630,9 +1665,11 @@ function save(fn, args, apply, onQueued) {
     toast('Saved', 1200);
     return d;
   }).catch(e => {
-    if (e.auth) { lock(e.message); return; }
+    if (e.auth) { lock(e.message); return SAVE_FAILED; }
     if (e.network) return queue();
-    toast('Could not save: ' + (e && e.message || e), 5000, true); load(true);
+    toast('Could not save: ' + (e && e.message || e), 5000, true);
+    if (apply) load(true);
+    return SAVE_FAILED;
   });
 }
 
@@ -2175,6 +2212,19 @@ function vSamples() {
   const uploadProblem = S.serverPhotoLimit && S.serverPhotoLimit < MAX_ANGLES
     ? 'The live tracker server accepts only ' + S.serverPhotoLimit + ' photos per leaf. Update and redeploy the Apps Script for all five photos.'
     : errors.length ? 'Drive upload error: ' + errors[0] : '';
+  const recovery = S.galleryRecovery;
+  const recoveryInfo = nativeUploadAvailable() && window.ThesisBackgroundUpload.scanNamedPhotos
+    ? '<div class="small" style="margin-top:8px">' +
+      (recovery && recovery.scanning ? 'Scanning Gallery for named sample photos…' :
+        recovery && recovery.access === 'denied' ? 'Allow Gallery access to recover photos after reinstall.' :
+        recovery && recovery.access === 'partial' ? 'Only selected Gallery photos are visible. Allow all photos to recover the rest.' :
+        recovery && recovery.recovered ? recovery.recovered + ' missing photo' + (recovery.recovered === 1 ? '' : 's') + ' restored from Gallery to the upload queue.' :
+        recovery && recovery.access === 'full' ? 'Gallery checked for missing sample photos.' : 'Gallery recovery is available after sign-in.') +
+      (recovery && recovery.unmatched ? ' ' + recovery.unmatched + ' named photo' + (recovery.unmatched === 1 ? '' : 's') + ' did not match a current sample and stayed in Gallery.' : '') +
+      (recovery && recovery.errors && recovery.errors.length ? ' Recovery error: ' + esc(recovery.errors[0]) : '') +
+      (recovery && recovery.unmatchedPhotos && recovery.unmatchedPhotos.length ? ' <button class="linkbtn" data-action="restoreGallerySamples">Restore missing sample records</button>' : '') +
+      ' <button class="linkbtn" data-action="recoverGallery"' + (recovery && recovery.scanning ? ' disabled' : '') + '>' +
+      (recovery && recovery.access === 'partial' ? 'Allow all &amp; rescan' : 'Scan Gallery again') + '</button></div>' : '';
   const today = pool.filter(x => x.date === localDay()).length;
 
   const whoSel = '<select class="ownsel" data-change="smpWho" aria-label="Whose samples">' + [me, ...TEAM.map(t => t.tab).filter(t => t !== me), 'All'].map(t =>
@@ -2187,6 +2237,7 @@ function vSamples() {
       (lp.goal ? '<div class="bar"><i style="width:' + lp.p + '%"></i></div>' : '') +
       (qn ? '<div class="small" style="margin-top:8px">' + ic('cloud_off') + ' ' + qn + ' photo' + (qn > 1 ? 's' : '') + ' saved on this phone, waiting for Drive confirmation</div>' : '') +
       (uploadProblem ? '<div class="small" role="alert" style="margin-top:8px;color:var(--red)">' + ic('error') + ' ' + esc(uploadProblem) + '</div>' : '') +
+      recoveryInfo +
       (!IS_PHONE ? '<div class="small muted" style="margin-top:8px">' + ic('visibility') + ' Take photos with the app on your phone. Everything else can be updated here.</div>' : '') + '</div>';
 
   // the farm checklist goes on top only until you start collecting today
@@ -2742,10 +2793,53 @@ const PhotoQ = (() => {
 
 const nativeUploadAvailable = () => !!(window.ThesisBackgroundUpload && window.ThesisBackgroundUpload.available);
 let nativeSessionReady = Promise.resolve(true), nativeSync = null;
+const deletingSamples = new Set();
+const deletingSupplies = new Set();
+function sampleDeletePending(id) {
+  return deletingSamples.has(id) || outbox().some(j => j.fn === 'deleteSample' && j.args[0] === id);
+}
+function supplyDeletePending(row) {
+  return deletingSupplies.has(row) || outbox().some(j => j.fn === 'deleteSupply' && Number(j.args[0]) === row);
+}
+async function finishSamplePhoneDeletion(id) {
+  let failed = false;
+  for (let angle = 1; angle <= Math.max(5, S.serverPhotoLimit || 0); angle++) {
+    const key = id + '_' + angle;
+    try { await PhotoQ.delStrict(key); } catch (e) { failed = true; }
+    try { await PhotoQ.galleryDel(key); } catch (e) { failed = true; }
+    if (nativeUploadAvailable()) {
+      try { await window.ThesisBackgroundUpload.cancel(key); } catch (e) { failed = true; }
+      try { await window.ThesisBackgroundUpload.deleteNamedPhoto(fname(id, angle)); } catch (e) { failed = true; }
+    }
+    delete S.queued[key]; delete S.thumbs[key]; delete S.issues[key]; delete S.shots[key];
+  }
+  delete S.phonePending[id];
+  const cam = store.get(CAM_STORE);
+  try { if (cam && JSON.parse(cam).id === id) store.del(CAM_STORE); } catch (e) { /* invalid old camera state */ }
+  updateSyncChip();
+  if (failed) toast('Sample deleted, but some phone copies could not be cleared. Check Gallery before reusing its label.', 6000, true);
+}
+async function finishSupplyPhoneDeletion(row) {
+  const key = receiptKey(row);
+  let failed = false, job = null;
+  try { job = await PhotoQ.get(key); } catch (e) { failed = true; }
+  try { await PhotoQ.delStrict(key); } catch (e) { failed = true; }
+  try { await PhotoQ.galleryDel(key + '_1'); } catch (e) { failed = true; }
+  if (nativeUploadAvailable()) {
+    try { await window.ThesisBackgroundUpload.cancel(key); } catch (e) { failed = true; }
+    if (job && job.galleryName) {
+      try { await window.ThesisBackgroundUpload.deleteNamedPhoto(job.galleryName); } catch (e) { failed = true; }
+    }
+  }
+  delete S.queued[key]; delete S.uploadErrors[key]; delete S.shots[key + '_1']; delete S.phonePending[key];
+  updateSyncChip();
+  if (failed) toast('Expense deleted, but its phone receipt could not be fully cleared. Check Gallery.', 6000, true);
+}
 function preparedNativeJob(job) {
   const key = jobKey(job);
   const sm = job.kind === 'receipt' ? null : S.data && sampleById(job.id);
-  return { ...job, key, date: job.date || (sm && sm.date) || '' };
+  return { ...job, key, owner: job.owner || (job.kind === 'receipt' ? S.user : ownerOf(job.id)),
+    date: job.date || (sm && sm.date) || '' };
 }
 async function queuePhotoJob(job) {
   const key = jobKey(job);
@@ -2774,6 +2868,8 @@ async function syncNativePhotos() {
     const pending = new Map((state.pending || []).map(p => [p.key, p]));
     for (const done of state.completed || []) {
       const job = byKey.get(done.key);
+      if ((done.owner && done.owner !== S.user) ||
+          (job && (job.owner || (job.kind === 'receipt' ? S.user : ownerOf(job.id))) !== S.user)) continue;
       if (job && Number(job.at) === Number(done.at)) {
         if (S.data && done.patch) {
           const item = job.kind === 'receipt' ? S.data.supplies && S.data.supplies.find(s => s.row === job.row) : sampleById(job.id);
@@ -2790,6 +2886,9 @@ async function syncNativePhotos() {
     }
     for (const job of byKey.values()) {
       const key = jobKey(job), prior = pending.get(key);
+      if ((job.owner || (job.kind === 'receipt' ? S.user : ownerOf(job.id))) !== S.user) continue;
+      if (job.kind !== 'receipt' && sampleDeletePending(job.id)) continue;
+      if (job.kind === 'receipt' && supplyDeletePending(job.row)) continue;
       if (!S.queued[key]) changed = true;
       S.queued[key] = job;
       const error = prior && prior.error || '';
@@ -2797,7 +2896,7 @@ async function syncNativePhotos() {
       if (error) S.uploadErrors[key] = error;
       else delete S.uploadErrors[key];
       if (S.uploading[key] || S.waiting[key]) continue;
-      if (!prior || Number(prior.at) !== Number(job.at)) await window.ThesisBackgroundUpload.enqueue(preparedNativeJob(job));
+      if (!prior || Number(prior.at) !== Number(job.at) || !prior.owner) await window.ThesisBackgroundUpload.enqueue(preparedNativeJob(job));
       else if (driveAuthorizationMissing({ message: prior.error })) toastDriveAuthorizationProblem();
       else if (/Please sign in/i.test(prior.error || '')) { lock('Sign in again to finish pending Google Drive uploads.'); return; }
     }
@@ -2806,6 +2905,100 @@ async function syncNativePhotos() {
   })().catch(e => { toast('Could not check background uploads: ' + (e.message || e), 4000, true); })
     .finally(() => { nativeSync = null; });
   return nativeSync;
+}
+
+function galleryRecoveryCandidates(photos, samples, user, pendingKeys) {
+  const byId = new Map((samples || []).map(x => [x.id, x]));
+  const missing = [];
+  const unmatchedPhotos = [];
+  for (const photo of photos || []) {
+    if (!photo || !/^([A-Z]{2}-\d{3,})_0[1-5]\.jpg$/.test(photo.name || '') ||
+        photo.name !== fname(photo.id, photo.angle) || ownerOf(photo.id) !== user) continue;
+    const sample = byId.get(photo.id);
+    if (!sample) { unmatchedPhotos.push(photo); continue; }
+    if ((sample.angles || []).map(Number).includes(photo.angle) || pendingKeys.has(photo.id + '_' + photo.angle)) continue;
+    missing.push({ photo, sample });
+  }
+  return { missing, unmatched: unmatchedPhotos.length, unmatchedPhotos };
+}
+
+function galleryBase64Blob(b64) {
+  const parts = [];
+  for (let i = 0; i < b64.length; i += 32768) {
+    const binary = atob(b64.slice(i, i + 32768));
+    const bytes = new Uint8Array(binary.length);
+    for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
+    parts.push(bytes);
+  }
+  return new Blob(parts, { type: 'image/jpeg' });
+}
+
+let galleryRecoveryRunning = null;
+function recoverGalleryPhotos(requestAll) {
+  if (galleryRecoveryRunning) return galleryRecoveryRunning;
+  galleryRecoveryRunning = (async () => {
+    if (!nativeUploadAvailable() || !window.ThesisBackgroundUpload.scanNamedPhotos || !S.user || !S.data) return;
+    if (!S.galleryRecoveryFresh || !navigator.onLine) {
+      toast('Connect to the tracker first so Gallery photos can be matched with current samples.', 5000, true);
+      return;
+    }
+    const user = S.user;
+    const report = { scanning: true, access: '', recovered: 0, unmatched: 0, unmatchedPhotos: [], errors: [] };
+    S.galleryRecovery = report;
+    if (S.view === 'samples' && !isTyping()) render();
+    try {
+      const scan = await window.ThesisBackgroundUpload.scanNamedPhotos(!!requestAll);
+      report.access = scan.access;
+      if (scan.access === 'denied') return;
+      const jobs = await PhotoQ.allStrict();
+      const state = await window.ThesisBackgroundUpload.status();
+      const pending = new Set(jobs.map(jobKey).concat((state.pending || []).map(p => p.key)));
+      const found = galleryRecoveryCandidates(scan.photos, S.data.samples, user, pending);
+      report.unmatched = found.unmatched;
+      report.unmatchedPhotos = found.unmatchedPhotos;
+      for (const { photo, sample } of found.missing) {
+        if (S.user !== user) break;
+        const key = photo.id + '_' + photo.angle;
+        if ((sample.angles || []).map(Number).includes(photo.angle) || S.queued[key]) continue;
+        try {
+          const saved = await window.ThesisBackgroundUpload.readNamedPhoto(photo.name);
+          if (!saved.b64) throw new Error('Gallery photo could not be read: ' + photo.name);
+          const prepared = await shrinkPhoto(galleryBase64Blob(saved.b64));
+          const at = Number(photo.at) > 946684800000 ? Number(photo.at) : Date.now();
+          const job = { id: photo.id, angle: photo.angle, owner: user, b64: prepared.full.split(',')[1], at,
+            date: sample.date || localDay(new Date(at)) };
+          await PhotoQ.put(key, job); // durable before native upload starts
+          await queuePhotoJob(job);
+          report.recovered++;
+        } catch (e) { report.errors.push(photo.name + ': ' + (e.message || e)); }
+      }
+      if (report.recovered) toast(report.recovered + ' Gallery photo' + (report.recovered === 1 ? '' : 's') + ' restored to the upload queue.', 5000);
+    } catch (e) { report.errors.push(e.message || String(e)); }
+    finally {
+      report.scanning = false;
+      if (S.view === 'samples' && !isTyping()) render();
+    }
+  })().finally(() => { galleryRecoveryRunning = null; });
+  return galleryRecoveryRunning;
+}
+
+async function restoreGallerySamples() {
+  const photos = S.galleryRecovery && S.galleryRecovery.unmatchedPhotos || [];
+  const groups = new Map();
+  for (const photo of photos) if (ownerOf(photo.id) === S.user && !groups.has(photo.id)) groups.set(photo.id, photo);
+  if (!groups.size || !S.galleryRecoveryFresh || !navigator.onLine) return;
+  const ids = [...groups.keys()];
+  if (!confirm('Restore ' + ids.length + ' sample record' + (ids.length === 1 ? '' : 's') + ' from named Gallery photos?\n\n' +
+      ids.join(', ') + '\n\nOnly photos missing from Drive will be queued.')) return;
+  let created = 0;
+  for (const id of ids) {
+    try { await call('createSample', id, localDay(new Date(Number(groups.get(id).at) || Date.now()))); created++; }
+    catch (e) { toast('Could not restore ' + id + ': ' + (e.message || e), 6000, true); }
+  }
+  if (created) {
+    await load(true);
+    await recoverGalleryPhotos(false);
+  }
 }
 
 let uploadChain = Promise.resolve();
@@ -2823,6 +3016,8 @@ function toastDriveAuthorizationProblem() {
 function jobKey(job) { return job.key || (job.id + '_' + job.angle); }
 function queueUpload(job) {           // uploads go one at a time so the phone stays responsive
   const key = jobKey(job);
+  if ((job.owner || (job.kind === 'receipt' ? S.user : ownerOf(job.id))) !== S.user ||
+      (job.kind === 'receipt' ? supplyDeletePending(job.row) : sampleDeletePending(job.id))) return Promise.resolve();
   const running = S.uploading[key] || S.waiting[key];
   if (running) { if ((job.at || 1) > running) S.redo[key] = job; return uploadChain; }   // a retake while the old photo uploads goes right after it
   S.waiting[key] = job.at || 1; delete S.queued[key]; renderCam(); updateSyncChip();
@@ -2832,6 +3027,10 @@ function queueUpload(job) {           // uploads go one at a time so the phone s
 async function sendPhoto(job) {
   const key = jobKey(job);
   delete S.waiting[key];
+  if ((job.owner || (job.kind === 'receipt' ? S.user : ownerOf(job.id))) !== S.user ||
+      (job.kind === 'receipt' ? supplyDeletePending(job.row) : sampleDeletePending(job.id))) {
+    S.queued[key] = job; updateSyncChip(); return;
+  }
   S.uploading[key] = job.at || 1; delete S.queued[key]; renderCam(); updateSyncChip();
   if (job.kind === 'receipt') return sendReceipt(job, key);
   try {
@@ -2855,8 +3054,11 @@ async function sendPhoto(job) {
   if (!S.cam && S.view === 'samples' && !isTyping()) render();
 }
 async function sendReceipt(job, key) {
+  if ((job.owner || S.user) !== S.user || supplyDeletePending(job.row)) {
+    delete S.uploading[key]; S.queued[key] = job; updateSyncChip(); return;
+  }
   try {
-    const patch = await call('uploadReceipt', job.row, job.b64);
+    const patch = await call('uploadReceipt', job.row, job.b64, job.item || '', job.expenseDate || '');
     const x = S.data && S.data.supplies.find(s => s.row === job.row);
     if (x && patch) { Object.assign(x, patch); persist(); }
     if (!S.redo[key]) await PhotoQ.del(key);
@@ -2880,11 +3082,13 @@ async function flushPhotos() {
   if (nativeUploadAvailable()) return syncNativePhotos();
   if (!navigator.onLine) return;
   const jobs = await PhotoQ.all();
-  for (const j of jobs || []) queueUpload(j);
+  for (const j of jobs || []) if ((j.owner || (j.kind === 'receipt' ? S.user : ownerOf(j.id))) === S.user &&
+      (j.kind === 'receipt' ? !supplyDeletePending(j.row) : !sampleDeletePending(j.id))) queueUpload(j);
   return uploadChain;
 }
 
 async function acceptShot(job, thumb, blob) {
+  job.owner = job.owner || ownerOf(job.id);
   if (blob && nativeCameraAvailable()) {
     await window.ThesisBackgroundUpload.saveNamedPhoto(fname(job.id, job.angle), job.b64);
     blob = null; // the native Gallery now owns the named phone copy
@@ -2977,19 +3181,21 @@ async function saveExpenseChanges(row, details) {
     return true;
   };
   const queueFrom = i => {
-    const jobs = changes.slice(i).map(([field, value]) => ({ fn: 'updateSupply', args: [row, field, value], user: S.user, at: Date.now() }));
+    const jobs = changes.slice(i).map(([field, value], offset) => ({ fn: 'updateSupply',
+      args: [row, field, value, changes[0][0] === 'item' && i + offset > 0 ? details.item : item.item],
+      user: S.user, at: Date.now() }));
     setOutbox(outbox().concat(jobs));
     return finish(true);
   };
   const fail = e => {
     if (e.auth) lock(e.message);
-    else { toast('Could not save expense: ' + (e.message || e), 5000, true); load(true); }
+    else toast('Could not save expense: ' + (e.message || e) + '. Your edits are still in the form; try again.', 6000, true);
     return false;
   };
   if (!changes.length) return finish(false);
   if (!DEMO && (!navigator.onLine || outbox().length)) return queueFrom(0);
   try {
-    await call('updateSupplyDetails', row, details);
+    await call('updateSupplyDetails', row, details, item.item);
     return finish(false);
   } catch (e) {
     if (e.network) return queueFrom(0);
@@ -2998,21 +3204,25 @@ async function saveExpenseChanges(row, details) {
   // Older deployments support single-field updates. Keep the editor usable until the new script is deployed.
   for (let i = 0; i < changes.length; i++) {
     const [field, value] = changes[i];
-    try { await call('updateSupply', row, field, value); }
+    try { await call('updateSupply', row, field, value,
+      changes[0][0] === 'item' && i > 0 ? details.item : item.item); }
     catch (e) { return e.network ? queueFrom(i) : fail(e); }
   }
   return finish(false);
 }
 function vSupplies() {
-  const d = S.data, ppl = TEAM.map(m => m.tab), cats = d.lists.expenseCategories || ['Sample collection', 'Printing', 'Transport', 'Food', 'Materials', 'Fees', 'Other'];
+  const d = S.data, ppl = [...TEAM.map(m => m.tab), 'Team'], cats = d.lists.expenseCategories || ['Sample collection', 'Printing', 'Transport', 'Food', 'Materials', 'Fees', 'Other'];
   const all = d.supplies.filter(s => s.item);
   const f = S.expFilter || 'All';
   const items = all.filter(s => f === 'All' || (f === 'Mine' ? s.assigned === S.user : f === 'To buy' ? !s.bought : s.category === f))
     .sort((a, b) => (a.bought - b.bought) || String(b.date || '').localeCompare(String(a.date || '')));
   const paid = all.filter(s => s.bought), toBuy = all.filter(s => !s.bought);
   const sum = arr => arr.reduce((a, s) => a + expenseTotal(s), 0);
-  const perPerson = ppl.map(p => { const m = TEAM.find(t => t.tab === p); return '<span class="chip" style="--c:' + m.color + ';cursor:default"><span class="dot"></span>' + esc(p) + ' ' + peso(sum(paid.filter(s => s.assigned === p))) + '</span>'; }).join('');
-  const sel = (arr, v, attrs, blank) => '<select ' + attrs + '>' + (blank ? '<option value="">' + blank + '</option>' : '') + arr.map(p => '<option' + (p === v ? ' selected' : '') + '>' + esc(p) + '</option>').join('') + '</select>';
+  const perPerson = ppl.map(p => { const m = TEAM.find(t => t.tab === p) || { color: 'var(--brand)' }; return '<span class="chip" style="--c:' + m.color + ';cursor:default"><span class="dot"></span>' + esc(p) + ' ' + peso(sum(paid.filter(s => s.assigned === p))) + '</span>'; }).join('');
+  const sel = (arr, v, attrs, blank) => {
+    const choices = v && !arr.includes(v) ? [...arr, v] : arr;
+    return '<select ' + attrs + '>' + (blank ? '<option value="">' + blank + '</option>' : '') + choices.map(p => '<option' + (p === v ? ' selected' : '') + '>' + esc(p) + '</option>').join('') + '</select>';
+  };
   const chips = ['All', 'Mine', 'To buy', ...cats.filter(c => all.some(s => s.category === c))].map(c =>
     '<button class="chip ' + (f === c ? 'on' : '') + '" data-action="expFilter" data-v="' + esc(c) + '">' + esc(c) + '</button>').join('');
   const card = s => {
@@ -3082,7 +3292,7 @@ function takeReceipt(row, fromGallery) {
     store.set(NATIVE_RECEIPT_STORE, JSON.stringify({ row, name, at: Date.now() }));
     S.preparing[key] = true; render();
     (fromGallery ? window.ThesisNativeCamera.choose(name) : window.ThesisNativeCamera.take(name))
-      .then(photo => { if (!photo) throw { name: 'AbortError' }; store.del(NATIVE_RECEIPT_STORE); return processReceiptPhoto(row, photo.blob, true); })
+      .then(photo => { if (!photo) throw { name: 'AbortError' }; store.del(NATIVE_RECEIPT_STORE); return processReceiptPhoto(row, photo.blob, true, name); })
       .catch(err => {
         store.del(NATIVE_RECEIPT_STORE);
         delete S.preparing[key]; render();
@@ -3094,21 +3304,25 @@ function takeReceipt(row, fromGallery) {
   inp.value = '';
   inp.click();
 }
-async function processReceiptPhoto(row, file, savedInGallery) {
+async function processReceiptPhoto(row, file, savedInGallery, galleryName) {
   const key = receiptKey(row);
   S.preparing[key] = true; render();
   try {
     const p = await shrinkPhoto(file);
-    const job = { kind: 'receipt', key, row, b64: p.full.split(',')[1], at: Date.now() };
+    const expense = S.data && S.data.supplies.find(s => s.row === row);
+    if (!expense) throw new Error('That expense no longer exists');
+    const job = { kind: 'receipt', key, row, owner: S.user, item: expense.item,
+      expenseDate: expense.date || '', b64: p.full.split(',')[1], at: Date.now() };
+    job.galleryName = galleryName || 'Receipt_row' + row + '_' + job.at + '.jpg';
     if (nativeCameraAvailable() && !savedInGallery) {
-      await window.ThesisBackgroundUpload.saveNamedPhoto('Receipt_row' + row + '_' + job.at + '.jpg', job.b64);
+      await window.ThesisBackgroundUpload.saveNamedPhoto(job.galleryName, job.b64);
       savedInGallery = true;
     }
     await PhotoQ.put(key, job);
     if (IS_PHONE && !savedInGallery) {
       try {
         const blob = await fetch(p.full).then(r => r.blob());
-        const name = 'Receipt_row' + row + '_' + job.at + '.jpg';
+        const name = job.galleryName;
         S.shots[key + '_1'] = { id: key, angle: 1, blob, name };
         await PhotoQ.galleryPut(key + '_1', S.shots[key + '_1']);
         S.phonePending[key] = [1];
@@ -3330,6 +3544,24 @@ document.addEventListener('click', e => {
   if (el.dataset.view) { S.view = el.dataset.view; S.addTaskOpen = S.addExpOpen = false; render(); window.scrollTo(0, 0); return; }
   const a = el.dataset.action, v = el.dataset.v;
   if (a === 'toastClose') { hideToast(); return; }
+  if (a === 'retryWrite') {
+    const pending = outbox();
+    if (pending.length) { delete pending[0].error; setOutbox(pending); flushOutbox(true); }
+    return;
+  }
+  if (a === 'discardWrite') {
+    if (flushing || !outbox().length || !confirm('Discard this unsynced change from this phone? It will not reach the tracker sheet.')) return;
+    const pending = outbox(), job = pending.shift();
+    if (job.tempId && S.data) {
+      if (job.fn === 'addSupply') S.data.supplies = S.data.supplies.filter(x => x.tempId !== job.tempId);
+      if (job.fn === 'addTask') { const m = member(job.tab); if (m) m.tasks = m.tasks.filter(x => x.tempId !== job.tempId); }
+      if (job.fn === 'addRecord') S.data.records[job.kind] = recs(job.kind).filter(x => x.tempId !== job.tempId);
+    }
+    setOutbox(pending); persist(); render();
+    if (!pending.length) load(true);
+    else flushOutbox();
+    return;
+  }
   if (a === 'install') { doInstall(); return; }
   if (a === 'logout') { logout(); return; }
   if (a === 'pwToggle') {
@@ -3367,6 +3599,8 @@ document.addEventListener('click', e => {
     return;
   }
   if (a === 'smpStage') { S.smpStage = v; render(); return; }
+  if (a === 'recoverGallery') { recoverGalleryPhotos(true); return; }
+  if (a === 'restoreGallerySamples') { restoreGallerySamples(); return; }
   if (a === 'smpBag') { const x = sampleById(el.dataset.id); if (x) markPacked(x.id); return; }
   if (a === 'smpSent') {
     const x = sampleById(el.dataset.id); if (!x) return;
@@ -3395,6 +3629,7 @@ document.addEventListener('click', e => {
       x.photos = x.angles.length;
       x.images = (x.images || []).map(p => p.angle === angle ? { ...p, url: '', capturedAt: 0 } : p);
     }).then(async patch => {
+      if (patch === SAVE_FAILED) return;
       const queued = outbox().some(j => j.fn === 'deletePhoto' && j.args[0] === id && j.args[1] === angle);
       if (!patch && !queued) return;
       if (patch) Object.assign(x, patch);
@@ -3414,18 +3649,22 @@ document.addEventListener('click', e => {
     if (Object.keys(S.uploading).concat(Object.keys(S.waiting), Object.keys(S.preparing)).some(k => k.indexOf(id + '_') === 0)) { toast('Wait a moment: ' + id + '\'s photos are still saving.', 3000, true); return; }
     const n = takenSet(x).size;
     if (!confirm('Delete ' + id + (n ? ' and its ' + n + ' photo' + (n > 1 ? 's' : '') : '') + '?\n\nPhotos go to the Drive trash. The label ' + id + ' will be used again for your next new sample.')) return;
-    Object.keys(S.queued).filter(k => k.indexOf(id + '_') === 0).forEach(k => {
-      delete S.queued[k]; PhotoQ.del(k);
-      if (nativeUploadAvailable()) window.ThesisBackgroundUpload.cancel(k).catch(() => {});
-    });   // waiting photos must not bring it back
-    Object.keys(S.thumbs).concat(Object.keys(S.issues), Object.keys(S.shots)).filter(k => k.indexOf(id + '_') === 0).forEach(k => { delete S.thumbs[k]; delete S.issues[k]; delete S.shots[k]; });
-    (S.phonePending[id] || []).forEach(angle => PhotoQ.galleryDel(id + '_' + angle).catch(() => {}));
-    delete S.phonePending[id];
-    try { const c = JSON.parse(store.get(CAM_STORE) || 'null'); if (c && c.id === id) store.del(CAM_STORE); } catch (err) {}
-    delete S.open['smp_' + id];
-    save('deleteSample', [id], () => { S.data.samples = S.data.samples.filter(s => s.id !== id); })
-      .then(() => toast('Deleted ' + id + ' · label free to reuse', 2200));
-    updateSyncChip();
+    deletingSamples.add(id);
+    const stops = nativeUploadAvailable()
+      ? Array.from({ length: Math.max(5, S.serverPhotoLimit || 0) }, (_, i) =>
+          window.ThesisBackgroundUpload.cancel(id + '_' + (i + 1))) : [];
+    Promise.all(stops).then(() => save('deleteSample', [id], () => {
+      S.data.samples = S.data.samples.filter(s => s.id !== id);
+    })).then(async result => {
+      deletingSamples.delete(id);
+      if (result === SAVE_FAILED) { flushPhotos(); return; }
+      if (result !== null) await finishSamplePhoneDeletion(id);
+      toast(result === null ? 'Deletion saved on this phone. It will finish when connected.' :
+        'Deleted ' + id + ' · label free to reuse', 2500);
+    }).catch(e => {
+      deletingSamples.delete(id);
+      toast('Could not stop pending photos; sample was not deleted: ' + (e.message || e), 6000, true);
+    });
   }
   else if (a === 'toggleCard') { S.open[v] = !S.open[v]; render(); }
   else if (a === 'more') { S.more = v; S.addRec = null; render(); window.scrollTo(0, 0); }
@@ -3535,7 +3774,7 @@ document.addEventListener('click', e => {
     const items = allTasks().filter(t => (S.member === 'All' || t.tab === S.member) && !t.tempId && dueState(t) === 'overdue');
     save('rescheduleTasks', [items.map(t => ({ tab: t.tab, row: t.row })), date], () => {
       items.forEach(t => { const x = member(t.tab).tasks.find(y => y.row === t.row); if (x) x.due = date; });
-    }).then(() => toast('Moved ' + items.length + ' task(s) to ' + fmt(date), 2200));
+    }).then(result => { if (result !== SAVE_FAILED) toast('Moved ' + items.length + ' task(s) to ' + fmt(date), 2200); });
   }
   else if (a === 'camFinish') { const x = S.cam && sampleById(S.cam.id); if (x && photosReady(x)) { S.cam.stage = 'finish'; saveCamState(); renderCam(); } }
   else if (a === 'camDone') { if (S.cam && S.cam.stage === 'finish') markPacked(S.cam.id); closeCam(); }
@@ -3581,15 +3820,24 @@ document.addEventListener('click', e => {
   }
   else if (a === 'delSupply') {
     const row = +el.dataset.row, x = S.data.supplies.find(s => s.row === row);
-    if (!confirm('Delete "' + x.item + '" from expenses?')) return;
+    if (!x) return;
     const rk = receiptKey(row);
-    if (S.queued[rk]) {
-      delete S.queued[rk]; PhotoQ.del(rk); updateSyncChip();
-      if (nativeUploadAvailable()) window.ThesisBackgroundUpload.cancel(rk).catch(() => {});
-    }     // the row is reused: a waiting receipt must not land on the next expense
-    (S.phonePending[rk] || []).forEach(angle => PhotoQ.galleryDel(rk + '_' + angle).catch(() => {}));
-    delete S.phonePending[rk]; delete S.shots[rk + '_1'];
-    save('deleteSupply', [row], () => { S.data.supplies = S.data.supplies.filter(s => s.row !== row); });
+    if (S.preparing[rk] || S.uploading[rk] || S.waiting[rk]) {
+      toast('Wait until the receipt finishes saving before deleting this expense.', 3500, true); return;
+    }
+    if (!confirm('Delete "' + x.item + '" from expenses?')) return;
+    deletingSupplies.add(row);
+    const stop = nativeUploadAvailable() ? window.ThesisBackgroundUpload.cancel(rk) : Promise.resolve();
+    stop.then(() => save('deleteSupply', [row, x.item], () => {
+      S.data.supplies = S.data.supplies.filter(s => s.row !== row);
+    })).then(async result => {
+      deletingSupplies.delete(row);
+      if (result === SAVE_FAILED) { flushPhotos(); return; }
+      if (result !== null) await finishSupplyPhoneDeletion(row);
+    }).catch(e => {
+      deletingSupplies.delete(row);
+      toast('Could not stop the pending receipt; expense was not deleted: ' + (e.message || e), 6000, true);
+    });
   }
   else if (a === 'rev') {
     const row = +el.dataset.row;
@@ -3620,7 +3868,8 @@ document.addEventListener('change', e => {
     const id = el.dataset.id;
     save('updateSample', [id, field, val], () => { sampleById(id)[field] = val; });
   } else if (k === 'supply') {
-    save('updateSupply', [row, field, val], () => { S.data.supplies.find(s => s.row === row)[field] = val; });
+    const item = S.data.supplies.find(s => s.row === row);
+    if (item) save('updateSupply', [row, field, val, item.item], () => { item[field] = val; });
   } else if (k === 'rcpc') {
     save('setRcpcDate', [val], () => { S.data.rcpcDate = val; });
   } else if (k === 'setting') {
@@ -3690,14 +3939,15 @@ document.addEventListener('submit', e => {
     const t = { task: f.task.value.trim(), category: f.category.value, priority: f.priority.value, due: f.due.value };
     if (!t.task) return;
     const tab = f.tab.value;
-    f.querySelector('button').disabled = true;
+    const submit = f.querySelector('[type="submit"]'); submit.disabled = true;
     f.task.blur();
-    save('addTask', [tab, t], null, () => {
+    save('addTask', [tab, t, createRequestId()], null, () => {
       const tempId = 'tmp' + Date.now();
       member(tab).tasks.push({ row: 0, id: 'new', tempId, task: t.task, category: t.category, priority: t.priority,
         status: 'Not Started', due: t.due || '', link: null, notes: '', completed: '' });
       return { tempId, tab };
     }).then(task => {
+      if (task === SAVE_FAILED) { if (f.isConnected) submit.disabled = false; return; }
       S.addTaskOpen = false;
       if (!task) { render(); return; }
       member(tab).tasks.push(task); persist(); render();
@@ -3708,12 +3958,14 @@ document.addEventListener('submit', e => {
     new FormData(f).forEach((val, key) => { x[key] = typeof val === 'string' ? val.trim() : val; });
     if (kind === 'consults') { x.status = 'Open'; x.signed = false; }
     if (kind === 'defense') x.done = false;
+    const submit = f.querySelector('[type="submit"]'); submit.disabled = true;
     S.data.records = S.data.records || {}; S.data.records[kind] = recs(kind);
-    save('addRecord', [kind, x], null, () => {
+    save('addRecord', [kind, x, createRequestId()], null, () => {
       const tempId = 'tmp' + Date.now();
       S.data.records[kind].push(Object.assign({ row: 0, tempId, by: S.user }, x));
       return { tempId, kind };
     }).then(res => {
+      if (res === SAVE_FAILED) { if (f.isConnected) submit.disabled = false; return; }
       if (!res) { S.addRec = null; render(); return; }
       S.data.records[kind].push(res); S.addRec = null; persist(); render();
       toast('Added', 1200);
@@ -3723,12 +3975,18 @@ document.addEventListener('submit', e => {
       cost: f.cost.value === '' ? '' : +f.cost.value, assigned: f.assigned.value, notes: '',
       category: f.category.value, date: f.date.value, bought: f.bought.checked, receipt: '' };
     if (!x.item) return;
-    f.reset(); f.item.blur();
-    save('addSupply', [x], null, () => {
+    if ((x.qty !== '' && (!Number.isFinite(x.qty) || x.qty < 0)) ||
+        (x.cost !== '' && (!Number.isFinite(x.cost) || x.cost < 0))) {
+      toast('Quantity and cost cannot be negative.', 3000, true); return;
+    }
+    const submit = f.querySelector('[type="submit"]'); submit.disabled = true;
+    f.item.blur();
+    save('addSupply', [x, createRequestId()], null, () => {
       const tempId = 'tmp' + Date.now();
       S.data.supplies.push(Object.assign({ row: 0, tempId }, x));
       return { tempId };
     }).then(res => {
+      if (res === SAVE_FAILED) { if (f.isConnected) submit.disabled = false; return; }
       S.addExpOpen = false;
       if (!res) { render(); return; }
       S.data.supplies.push(res); persist(); render();

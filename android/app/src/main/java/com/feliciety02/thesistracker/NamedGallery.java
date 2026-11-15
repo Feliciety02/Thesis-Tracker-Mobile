@@ -1,8 +1,10 @@
 package com.feliciety02.thesistracker;
 
 import android.content.ContentResolver;
+import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Context;
+import android.database.Cursor;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
@@ -17,10 +19,83 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 /** Saves the exact sample filename in the phone's public Pictures collection. */
 final class NamedGallery {
+    private static final Pattern SAMPLE_NAME = Pattern.compile("^([A-Z]{2}-[0-9]{3,})_0([1-5])\\.jpg$", Pattern.CASE_INSENSITIVE);
+    private static final String TRACKER_FOLDER = "/pictures/banana thesis tracker/";
     private NamedGallery() {}
+
+    private static final class GalleryPhoto {
+        final String name, id;
+        final int angle;
+        final long at, mediaId;
+        final Uri uri;
+
+        GalleryPhoto(String name, String id, int angle, long at, long mediaId, Uri uri) {
+            this.name = name; this.id = id; this.angle = angle;
+            this.at = at; this.mediaId = mediaId; this.uri = uri;
+        }
+    }
+
+    /** Scan only the public folder that this app writes. This also works after uninstall erased its URI preferences. */
+    private static Map<String, GalleryPhoto> namedPhotos(Context context) throws IOException {
+        Map<String, GalleryPhoto> found = new HashMap<>();
+        String[] columns = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+            ? new String[] { MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.RELATIVE_PATH, MediaStore.Images.Media.DATE_ADDED }
+            : new String[] { MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.DATA, MediaStore.Images.Media.DATE_ADDED };
+        String pathColumn = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+            ? MediaStore.Images.Media.RELATIVE_PATH : MediaStore.Images.Media.DATA;
+        String selection = pathColumn + " LIKE ?";
+        String[] args = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+            ? new String[] { "%Banana Thesis Tracker%" }
+            : new String[] { "%/Pictures/Banana Thesis Tracker/%" };
+        try (Cursor cursor = context.getContentResolver().query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            columns, selection, args, null)) {
+            if (cursor == null) throw new IOException("Could not scan Gallery photos");
+            while (cursor.moveToNext()) {
+                String path = cursor.getString(2);
+                if (path == null || !("/" + path.replace('\\', '/').toLowerCase()).contains(TRACKER_FOLDER)) continue;
+                String name = cursor.getString(1);
+                if (name == null) continue;
+                Matcher match = SAMPLE_NAME.matcher(name);
+                if (!match.matches()) continue;
+                long mediaId = cursor.getLong(0), at = cursor.getLong(3) * 1000L;
+                String id = match.group(1).toUpperCase(), normalized = id + "_0" + match.group(2) + ".jpg";
+                GalleryPhoto old = found.get(normalized);
+                if (old == null || at > old.at || at == old.at && mediaId > old.mediaId)
+                    found.put(normalized, new GalleryPhoto(normalized, id, Integer.parseInt(match.group(2)), at,
+                        mediaId, ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, mediaId)));
+            }
+        } catch (SecurityException e) { throw new IOException("Allow access to all Gallery photos to recover samples", e); }
+        return found;
+    }
+
+    static JSONArray scan(Context context) throws IOException, JSONException {
+        List<GalleryPhoto> photos = new ArrayList<>(namedPhotos(context).values());
+        photos.sort((a, b) -> a.name.compareTo(b.name));
+        JSONArray result = new JSONArray();
+        for (GalleryPhoto photo : photos) {
+            JSONObject item = new JSONObject();
+            item.put("id", photo.id);
+            item.put("angle", photo.angle);
+            item.put("name", photo.name);
+            item.put("at", photo.at);
+            result.put(item);
+        }
+        return result;
+    }
 
     private static InputStream source(Context context, String sourceUri, String b64) throws IOException {
         if (sourceUri != null && !sourceUri.isEmpty()) {
@@ -86,6 +161,10 @@ final class NamedGallery {
             return true;
         }
         String saved = context.getSharedPreferences("named-gallery", Context.MODE_PRIVATE).getString(name, "");
+        if (saved.isEmpty()) {
+            GalleryPhoto recovered = namedPhotos(context).get(name);
+            if (recovered != null) saved = recovered.uri.toString();
+        }
         if (saved.isEmpty()) return false;
         try {
             boolean deleted = context.getContentResolver().delete(Uri.parse(saved), null, null) > 0;
@@ -105,8 +184,16 @@ final class NamedGallery {
             in = new FileInputStream(file);
         } else {
             String saved = context.getSharedPreferences("named-gallery", Context.MODE_PRIVATE).getString(name, "");
-            if (saved.isEmpty()) return "";
-            in = context.getContentResolver().openInputStream(Uri.parse(saved));
+            in = null;
+            if (!saved.isEmpty()) {
+                try { in = context.getContentResolver().openInputStream(Uri.parse(saved)); }
+                catch (IOException | SecurityException ignored) { /* URI from a previous app installation */ }
+            }
+            if (in == null) {
+                GalleryPhoto photo = namedPhotos(context).get(name);
+                if (photo == null) return "";
+                in = context.getContentResolver().openInputStream(photo.uri);
+            }
             if (in == null) return "";
         }
         try (InputStream source = in; ByteArrayOutputStream out = new ByteArrayOutputStream()) {

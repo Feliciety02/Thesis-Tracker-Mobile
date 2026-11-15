@@ -169,8 +169,12 @@ function fmtDate_(v, tz) {
 }
 function parseDate_(s) {
   if (!s) return '';
-  const p = String(s).split('-');
-  return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  const p = String(s).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!p) throw new Error('Use a valid date in YYYY-MM-DD format');
+  const d = new Date(Number(p[1]), Number(p[2]) - 1, Number(p[3]));
+  if (d.getFullYear() !== Number(p[1]) || d.getMonth() !== Number(p[2]) - 1 || d.getDate() !== Number(p[3]))
+    throw new Error('That date does not exist');
+  return d;
 }
 function parseLink_(formula, value) {
   const m = String(formula || '').match(/HYPERLINK\("([^"]+)"\s*[,;]\s*"([^"]*)"\)/i);
@@ -182,6 +186,24 @@ function withLock_(fn) {
   const lock = LockService.getDocumentLock();
   lock.waitLock(15000);
   try { return fn(); } finally { lock.releaseLock(); }
+}
+/** A retry after a lost response must return the original row instead of adding a duplicate. */
+function createOnce_(kind, requestId, fn) {
+  if (!requestId) return fn();                 // older app versions
+  requestId = String(requestId);
+  if (!/^[A-Za-z0-9_-]{8,80}$/.test(requestId)) throw new Error('Invalid create request ID');
+  const props = PropertiesService.getScriptProperties(), key = 'CREATE_' + kind + '_' + requestId;
+  const old = props.getProperty(key);
+  if (old) return JSON.parse(old);
+  const result = fn();
+  try {
+    props.setProperty(key, JSON.stringify(result));
+    const keys = JSON.parse(props.getProperty('CREATE_KEYS') || '[]');
+    keys.push(key);
+    while (keys.length > 120) props.deleteProperty(keys.shift());
+    props.setProperty('CREATE_KEYS', JSON.stringify(keys));
+  } catch (e) { console.error('Could not remember create request ' + requestId + ': ' + e); }
+  return result;
 }
 function sheet_(name) {
   const sh = SpreadsheetApp.getActive().getSheetByName(name);
@@ -316,6 +338,7 @@ function updateTask(tab, row, field, value) {
     const sh = memberSheet_(tab);
     row = Number(row);
     if (row < 4) throw new Error('Bad row');
+    if (!sh.getRange(row, 2).getValue()) throw new Error('That task no longer exists');
     const col = { task: 2, category: 3, priority: 4, status: 5, due: 6, notes: 8, doneBy: 10 }[field];
     if (!col) throw new Error('Field not editable: ' + field);
     sh.getRange(row, col).setValue(field === 'due' ? parseDate_(value) : value);
@@ -330,8 +353,8 @@ function updateTask(tab, row, field, value) {
   });
 }
 
-function addTask(tab, t) {
-  return withLock_(() => {
+function addTask(tab, t, requestId) {
+  return withLock_(() => createOnce_('task', requestId, () => {
     const sh = memberSheet_(tab);
     if (!t || !String(t.task || '').trim()) throw new Error('Task text is required');
     const vals = sh.getRange(4, 1, CFG.maxRows, 2).getValues();
@@ -347,7 +370,7 @@ function addTask(tab, t) {
     sh.getRange(row, 8).setValue(t.notes || '');
     return { row: row, id: id, task: String(t.task).trim(), category: t.category || '', priority: t.priority || 'Medium',
              status: 'Not Started', due: t.due || '', link: null, notes: t.notes || '', completed: '' };
-  });
+  }));
 }
 
 function deleteTask(tab, row) {
@@ -355,6 +378,7 @@ function deleteTask(tab, row) {
     const sh = memberSheet_(tab);
     row = Number(row);
     if (row < 4) throw new Error('Bad row');
+    if (!sh.getRange(row, 2).getValue()) throw new Error('That task no longer exists');
     sh.getRange(row, 1, 1, 10).clearContent();  // keeps the dropdowns; the row is reused by the next new task
     return true;
   });
@@ -482,28 +506,34 @@ function deleteSample(id) {
   id = String(id || '').toUpperCase();
   if (!/^[A-Z]{2}-\d{3,}$/.test(id)) throw new Error('Bad sample label: ' + id);
   requireSampleOwner_(id);
-  let trashed = 0;
+  const files = photoFilesFor_(id), folder = sampleFolder_(id, false);
+  const trashed = [];
+  let folderTrashed = false;
   try {
-    photoFilesFor_(id).forEach(f => { f.setTrashed(true); trashed++; });   // Drive trash: recoverable for 30 days
-    const sf = sampleFolder_(id, false); if (sf) sf.setTrashed(true);       // and the leaf's own folder
-  } catch (e) { /* no photo folder yet: nothing to remove */ }
+    files.forEach(f => { f.setTrashed(true); trashed.push(f); });
+    if (folder) { folder.setTrashed(true); folderTrashed = true; }
+    withLock_(() => {
+      const sh = sheet_('DA RCPC Samples');
+      const row = sampleRow_(sh, id);
+      if (row < 0) return;
+      ensureSampleImageRows_(sh, id);
+      sh.deleteRows(row + 1, CFG.photoAngles.length);
+      sh.getRange(row, 1, 1, 16).clearContent();             // checkboxes and dropdowns stay; the row is reused by the next new sample
+      sh.getRange(row, 1).setBackground(null);
+    });
+  } catch (e) {
+    if (folderTrashed) try { folder.setTrashed(false); } catch (restoreError) { console.error(restoreError); }
+    trashed.forEach(f => { try { f.setTrashed(false); } catch (restoreError) { console.error(restoreError); } });
+    throw e;
+  }
   try {                                                       // copies made by "Export for training"
     const exp = PropertiesService.getScriptProperties().getProperty('EXPORT_FOLDER_ID');
     if (exp) {
       const subs = DriveApp.getFolderById(exp).getFolders();
       while (subs.hasNext()) { const fi = subs.next().getFiles(); while (fi.hasNext()) { const f = fi.next(); if (!f.isTrashed() && f.getName().toUpperCase().indexOf(id + '_') === 0) f.setTrashed(true); } }
     }
-  } catch (e) {}
-  withLock_(() => {
-    const sh = sheet_('DA RCPC Samples');
-    const row = sampleRow_(sh, id);
-    if (row < 0) return;
-    ensureSampleImageRows_(sh, id);
-    sh.deleteRows(row + 1, CFG.photoAngles.length);
-    sh.getRange(row, 1, 1, 16).clearContent();               // checkboxes and dropdowns stay; the row is reused by the next new sample
-    sh.getRange(row, 1).setBackground(null);
-  });
-  return { photos: trashed };
+  } catch (e) { console.error('Could not trash exported photos for ' + id + ': ' + e); }
+  return { photos: trashed.length };
 }
 
 function updateSample(id, field, value) {
@@ -520,20 +550,27 @@ function updateSample(id, field, value) {
   });
 }
 
-function updateSupply(row, field, value) {
+function updateSupply(row, field, value, expectedItem) {
   return withLock_(() => {
     const sh = sheet_('Expenses');
     row = Number(row);
-    if (row < 3 || row >= suppliesTotalRow_(sh)) throw new Error('Bad row');
+    if (row < 3 || row >= suppliesTotalRow_(sh) || !sh.getRange(row, 1).getValue()) throw new Error('That expense no longer exists');
+    if (expectedItem && String(sh.getRange(row, 1).getValue()) !== String(expectedItem))
+      throw new Error('That expense changed while this edit was waiting. Reload and edit the current item.');
     const col = { item: 1, purpose: 2, qty: 3, cost: 4, assigned: 6, bought: 7, notes: 8, category: 9, date: 10 }[field];
     if (!col) throw new Error('Field not editable: ' + field);
+    if (field === 'item' && !String(value || '').trim()) throw new Error('Item name is required');
+    if (field === 'qty' || field === 'cost') {
+      if (value !== '' && value != null && (!isFinite(Number(value)) || Number(value) < 0))
+        throw new Error('Quantity and cost cannot be negative');
+    }
     sh.getRange(row, col).setValue(field === 'date' ? parseDate_(value) : value);
     return true;
   });
 }
 
 /** Save the expense editor as one change, without touching subtotal formulas or receipt links. */
-function updateSupplyDetails(row, details) {
+function updateSupplyDetails(row, details, expectedItem) {
   row = Number(row);
   details = details || {};
   const item = String(details.item || '').trim();
@@ -547,17 +584,34 @@ function updateSupplyDetails(row, details) {
     const sh = sheet_('Expenses');
     if (row < 3 || row >= suppliesTotalRow_(sh) || !sh.getRange(row, 1).getValue())
       throw new Error('That expense no longer exists');
+    const old = sh.getRange(row, 1, 1, 10).getValues()[0];
+    if (expectedItem && String(old[0]) !== String(expectedItem))
+      throw new Error('That expense changed while this edit was waiting. Reload and edit the current item.');
+    const assigned = String(details.assigned || ''), category = String(details.category || '');
+    if (assigned && assigned !== old[5] && assigned !== 'Team' && !CFG.members.some(m => m.tab === assigned))
+      throw new Error('Choose a valid buyer');
+    if (category && category !== old[8] && CFG.expenseCategories.indexOf(category) < 0)
+      throw new Error('Choose a valid expense category');
     sh.getRange(row, 1, 1, 4).setValues([[item, String(details.purpose || ''), qty, cost]]);
-    sh.getRange(row, 6, 1, 4).setValues([[String(details.assigned || ''), details.bought === true,
-      String(details.notes || ''), String(details.category || '')]]);
+    sh.getRange(row, 6, 1, 4).setValues([[assigned, details.bought === true,
+      String(details.notes || ''), category]]);
     sh.getRange(row, 10).setValue(date);
     return true;
   });
 }
 
-function addSupply(x) {
+function addSupply(x, requestId) {
   if (!x || !String(x.item || '').trim()) throw new Error('Item name is required');
-  return withLock_(() => {
+  const qty = x.qty === '' || x.qty == null ? 1 : Number(x.qty);
+  const cost = x.cost === '' || x.cost == null ? '' : Number(x.cost);
+  if (!isFinite(qty) || qty < 0 || cost !== '' && (!isFinite(cost) || cost < 0))
+    throw new Error('Quantity and cost cannot be negative');
+  if (x.assigned && x.assigned !== 'Team' && !CFG.members.some(m => m.tab === x.assigned))
+    throw new Error('Choose a valid buyer');
+  if (x.category && CFG.expenseCategories.indexOf(x.category) < 0)
+    throw new Error('Choose a valid expense category');
+  const date = x.date ? parseDate_(x.date) : new Date();
+  return withLock_(() => createOnce_('supply', requestId, () => {
     const sh = sheet_('Expenses');
     let total = suppliesTotalRow_(sh), row = -1;
     const vals = sh.getRange(3, 1, Math.max(1, total - 3), 1).getValues();
@@ -569,25 +623,25 @@ function addSupply(x) {
       sh.getRange(row, 7).insertCheckboxes();
       sh.getRange(total, 5).setFormula('=SUM(E3:E' + (total - 1) + ')');
     }
-    const qty = x.qty === '' || x.qty == null ? 1 : Number(x.qty);
-    const cost = x.cost === '' || x.cost == null ? '' : Number(x.cost);
     sh.getRange(row, 1, 1, 4).setValues([[String(x.item).trim(), x.purpose || '', qty, cost]]);
     sh.getRange(row, 6).setValue(x.assigned || '');
     sh.getRange(row, 7).setValue(x.bought === true);
     sh.getRange(row, 8).setValue(x.notes || '');
     sh.getRange(row, 9).setValue(x.category || 'Other');
-    sh.getRange(row, 10).setValue(x.date ? parseDate_(x.date) : new Date()).setNumberFormat('mmm d, yyyy');
+    sh.getRange(row, 10).setValue(date).setNumberFormat('mmm d, yyyy');
     const tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
     return { row: row, item: String(x.item).trim(), purpose: x.purpose || '', qty: qty, cost: cost, assigned: x.assigned || '', bought: x.bought === true,
              notes: x.notes || '', category: x.category || 'Other', date: fmtDate_(sh.getRange(row, 10).getValue(), tz), receipt: '' };
-  });
+  }));
 }
 
-function deleteSupply(row) {
+function deleteSupply(row, expectedItem) {
   return withLock_(() => {
     const sh = sheet_('Expenses');
     row = Number(row);
-    if (row < 3 || row >= suppliesTotalRow_(sh)) throw new Error('Bad row');
+    if (row < 3 || row >= suppliesTotalRow_(sh) || !sh.getRange(row, 1).getValue()) throw new Error('That expense no longer exists');
+    if (expectedItem && String(sh.getRange(row, 1).getValue()) !== String(expectedItem))
+      throw new Error('That expense changed while this deletion was waiting. Reload before deleting it.');
     sh.getRange(row, 1, 1, 4).clearContent();       // keeps the subtotal formula + checkbox for reuse
     sh.getRange(row, 6).clearContent();
     sh.getRange(row, 7).setValue(false);
@@ -784,19 +838,25 @@ function deletePhoto(id, angle) {
   const name = id + '_' + ('0' + angle).slice(-2);
   const files = photoFilesFor_(id).filter(f => photoBase_(f.getName()) === name);
   if (!files.length) throw new Error('Photo not found in Drive: ' + imageFileName_(id, angle));
-  files.forEach(f => f.setTrashed(true));
-  return withLock_(() => {
-    ensureSampleImageRows_(sh, id);
-    const remaining = photoFilesFor_(id).map(f => photoBase_(f.getName())).filter(Boolean)
-      .map(b => Number(b.split('_')[1])).filter(a => a >= 1 && a <= CFG.photoAngles.length);
-    const angles = Array.from(new Set(remaining)).sort((a, b) => a - b);
-    sh.getRange(row, 15).setNumberFormat('@').setValue(angles.join(' '));
-    sh.getRange(row, 6).setValue(angles.length);
-    sh.getRange(row + angle, 3).clearContent();
-    sh.getRange(row + angle, 7).setValue(imageFileName_(id, angle));
-    sh.getRange(row + angle, 14).clearContent();
-    return samplePhotoPatch_(sh, row, id);
-  });
+  const trashed = [];
+  try {
+    files.forEach(f => { f.setTrashed(true); trashed.push(f); });
+    return withLock_(() => {
+      ensureSampleImageRows_(sh, id);
+      const remaining = photoFilesFor_(id).map(f => photoBase_(f.getName())).filter(Boolean)
+        .map(b => Number(b.split('_')[1])).filter(a => a >= 1 && a <= CFG.photoAngles.length);
+      const angles = Array.from(new Set(remaining)).sort((a, b) => a - b);
+      sh.getRange(row, 15).setNumberFormat('@').setValue(angles.join(' '));
+      sh.getRange(row, 6).setValue(angles.length);
+      sh.getRange(row + angle, 3).clearContent();
+      sh.getRange(row + angle, 7).setValue(imageFileName_(id, angle));
+      sh.getRange(row + angle, 14).clearContent();
+      return samplePhotoPatch_(sh, row, id);
+    });
+  } catch (e) {
+    trashed.forEach(f => { try { f.setTrashed(false); } catch (restoreError) { console.error(restoreError); } });
+    throw e;
+  }
 }
 
 /** Menu: Thesis Tracker → Connect photo folder. Run once; grants Drive permission. */
@@ -976,7 +1036,7 @@ function receiptFolder_() {
 }
 
 /** Saves a receipt photo for an expense row and links it in the Receipt column. Retaking replaces it. */
-function uploadReceipt(row, b64) {
+function uploadReceipt(row, b64, expectedItem, expectedDate) {
   row = Number(row);
   if (!b64 || String(b64).length < 100) throw new Error('Empty photo');
   const sh = sheet_('Expenses');
@@ -984,6 +1044,9 @@ function uploadReceipt(row, b64) {
   const v = sh.getRange(row, 1, 1, 10).getValues()[0];
   if (!v[0]) throw new Error('That expense no longer exists');
   const tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+  if (expectedItem && String(v[0]) !== String(expectedItem) ||
+      expectedDate && fmtDate_(v[9], tz) !== String(expectedDate))
+    throw new Error('That expense changed since the receipt was captured. Retake or attach the receipt to the current item.');
   const day = Utilities.formatDate(v[9] instanceof Date ? v[9] : new Date(), tz, 'yyyy-MM-dd');
   const name = 'Receipt_row' + row + '_' + day + '_' + String(v[0]).replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 40) + (v[5] ? '_' + v[5] : '') + '.jpg';
   const folder = receiptFolder_();
@@ -1183,7 +1246,12 @@ function recordLabel_(kind, o) {
 function recordUsed_(R, r) { return R.fields.some((f, i) => f[0] !== 'by' && f[0] !== 'doneBy' && r[i] !== '' && r[i] !== false && r[i] !== null); }
 function recordValue_(f, v) {
   if (f[2] === 'date') return parseDate_(v);
-  if (f[2] === 'num') return v === '' || v == null ? '' : Number(v);
+  if (f[2] === 'num') {
+    if (v === '' || v == null) return '';
+    const n = Number(v);
+    if (!isFinite(n)) throw new Error('Enter a valid number for ' + f[0]);
+    return n;
+  }
   if (f[2] === 'bool') return v === true || v === 'true';
   if (f[2].indexOf('list:') === 0) { const ok = f[2].slice(5).split('|'); return ok.indexOf(v) > -1 ? v : ok[0]; }
   return String(v == null ? '' : v).slice(0, 2000);
@@ -1204,8 +1272,8 @@ function readRecords_(tz) {
   });
   return out;
 }
-function addRecord(kind, obj) {
-  return withLock_(() => {
+function addRecord(kind, obj, requestId) {
+  return withLock_(() => createOnce_('record', requestId, () => {
     const { R, sh } = recordSheet_(kind);
     obj = obj || {};
     const n = R.fields.length, last = Math.max(3, sh.getLastRow());
@@ -1218,7 +1286,7 @@ function addRecord(kind, obj) {
     const o = { row: row };
     R.fields.forEach((f, j) => { o[f[0]] = f[2] === 'date' ? (obj[f[0]] || '') : line[j]; });
     return o;
-  });
+  }));
 }
 function updateRecord(kind, row, field, value) {
   return withLock_(() => {
@@ -1226,6 +1294,8 @@ function updateRecord(kind, row, field, value) {
     row = Number(row);
     const col = R.fields.findIndex(f => f[0] === field);
     if (row < 3 || col < 0 || field === 'by') throw new Error('Field not editable: ' + field);
+    if (!recordUsed_(R, sh.getRange(row, 1, 1, R.fields.length).getValues()[0]))
+      throw new Error('That record no longer exists');
     const v = recordValue_(R.fields[col], value);
     sh.getRange(row, col + 1).setValue(v);
     const patch = {}; patch[field] = R.fields[col][2] === 'date' ? value : v;
@@ -1241,6 +1311,8 @@ function deleteRecord(kind, row) {
     const { R, sh } = recordSheet_(kind);
     row = Number(row);
     if (row < 3) throw new Error('Bad row');
+    if (!recordUsed_(R, sh.getRange(row, 1, 1, R.fields.length).getValues()[0]))
+      throw new Error('That record no longer exists');
     sh.getRange(row, 1, 1, R.fields.length).clearContent();   // checkboxes stay as checkboxes
     return true;
   });

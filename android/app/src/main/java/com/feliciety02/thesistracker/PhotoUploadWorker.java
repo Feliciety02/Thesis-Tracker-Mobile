@@ -35,7 +35,9 @@ public final class PhotoUploadWorker extends Worker {
         Constraints connected = new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build();
         OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(PhotoUploadWorker.class)
             .setConstraints(connected)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            // DNS can fail while Android still reports a connected network. Linear retries
+            // keep later Wi-Fi recovery from being delayed by hours of exponential backoff.
+            .setBackoffCriteria(BackoffPolicy.LINEAR, 1, TimeUnit.MINUTES)
             .build();
         WorkManager.getInstance(context).enqueueUniqueWork(WORK_NAME, policy, request);
     }
@@ -49,11 +51,12 @@ public final class PhotoUploadWorker extends Worker {
         Context context = getApplicationContext();
         String token = context.getSharedPreferences("drive-upload-session", Context.MODE_PRIVATE).getString("token", "");
         String url = context.getSharedPreferences("drive-upload-session", Context.MODE_PRIVATE).getString("url", "");
-        if (token.isEmpty() || url.isEmpty()) return Result.success(); // sign in again; keep the photos
+        String owner = context.getSharedPreferences("drive-upload-session", Context.MODE_PRIVATE).getString("owner", "");
+        if (token.isEmpty() || url.isEmpty() || owner.isEmpty()) return Result.success(); // sign in again; keep the photos
         try {
             JSONObject job;
             Set<String> failed = new HashSet<>();
-            while (!isStopped() && (job = UploadStore.next(context, failed)) != null) {
+            while (!isStopped() && (job = UploadStore.next(context, failed, owner)) != null) {
                 try {
                     if (job.optBoolean("firstCapture") && job.optString("date", "").matches("\\d{4}-\\d{2}-\\d{2}")) {
                         JSONArray dateArgs = new JSONArray();
@@ -86,6 +89,8 @@ public final class PhotoUploadWorker extends Worker {
             fn = "uploadReceipt";
             args.put(job.getInt("row"));
             args.put(job.getString("b64"));
+            args.put(job.optString("item", ""));
+            args.put(job.optString("expenseDate", ""));
         } else {
             fn = "uploadPhoto";
             args.put(job.getString("id"));

@@ -13,9 +13,13 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 @CapacitorPlugin(name = "BackgroundUpload", permissions = {
-    @Permission(alias = "legacyGallery", strings = { Manifest.permission.WRITE_EXTERNAL_STORAGE })
+    @Permission(alias = "legacyGallery", strings = { Manifest.permission.WRITE_EXTERNAL_STORAGE }),
+    @Permission(alias = "readGalleryLegacy", strings = { Manifest.permission.READ_EXTERNAL_STORAGE }),
+    @Permission(alias = "readGalleryImages", strings = { Manifest.permission.READ_MEDIA_IMAGES }),
+    @Permission(alias = "readGallerySelected", strings = { Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED })
 })
 public class BackgroundUploadPlugin extends Plugin {
     @PluginMethod
@@ -48,15 +52,51 @@ public class BackgroundUploadPlugin extends Plugin {
         catch (Exception e) { call.reject("Could not preview named Gallery photo", e); }
     }
 
+    private boolean fullGalleryAccess() {
+        return getPermissionState(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+            ? "readGalleryImages" : "readGalleryLegacy") == PermissionState.GRANTED;
+    }
+
+    private boolean selectedGalleryAccess() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+            getPermissionState("readGallerySelected") == PermissionState.GRANTED;
+    }
+
+    @PluginMethod
+    public void scanNamedPhotos(PluginCall call) {
+        if (!fullGalleryAccess() && (!selectedGalleryAccess() || call.getBoolean("requestAll", false))) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+                requestPermissionForAliases(new String[] { "readGalleryImages", "readGallerySelected" }, call, "galleryScanPermissionResult");
+            else requestPermissionForAlias(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                ? "readGalleryImages" : "readGalleryLegacy", call, "galleryScanPermissionResult");
+            return;
+        }
+        finishGalleryScan(call);
+    }
+
+    @PermissionCallback
+    private void galleryScanPermissionResult(PluginCall call) { finishGalleryScan(call); }
+
+    private void finishGalleryScan(PluginCall call) {
+        boolean full = fullGalleryAccess(), selected = selectedGalleryAccess();
+        if (!full && !selected) {
+            call.resolve(new JSObject().put("access", "denied").put("photos", new JSONArray()));
+            return;
+        }
+        try { call.resolve(new JSObject().put("access", full ? "full" : "partial")
+            .put("photos", NamedGallery.scan(getContext()))); }
+        catch (Exception e) { call.reject("Could not scan named Gallery photos", e); }
+    }
+
     @PluginMethod
     public void setSession(PluginCall call) {
-        String token = call.getString("token", ""), url = call.getString("url", "");
-        if (token.isEmpty() || !url.matches("https://script\\.google\\.com/macros/s/[^/]+/exec")) {
+        String token = call.getString("token", ""), url = call.getString("url", ""), owner = call.getString("owner", "");
+        if (token.isEmpty() || owner.isEmpty() || !url.matches("https://script\\.google\\.com/macros/s/[^/]+/exec")) {
             call.reject("Invalid upload session");
             return;
         }
         boolean saved = getContext().getSharedPreferences("drive-upload-session", Context.MODE_PRIVATE)
-            .edit().putString("token", token).putString("url", url).commit();
+            .edit().putString("token", token).putString("url", url).putString("owner", owner).commit();
         if (!saved) { call.reject("Cannot save upload session"); return; }
         try {
             // Opening an updated app should retry its durable queue now, even if an older
@@ -81,6 +121,8 @@ public class BackgroundUploadPlugin extends Plugin {
         if (token.isEmpty()) { call.reject("Sign in to queue the Drive upload"); return; }
         try {
             JSONObject job = new JSONObject(supplied.toString());
+            String owner = getContext().getSharedPreferences("drive-upload-session", Context.MODE_PRIVATE).getString("owner", "");
+            if (!owner.equals(job.optString("owner", ""))) { call.reject("Sign in as the photo owner to queue this upload"); return; }
             UploadStore.enqueue(getContext(), job);
             PhotoUploadWorker.schedule(getContext(), ExistingWorkPolicy.APPEND_OR_REPLACE);
             call.resolve();

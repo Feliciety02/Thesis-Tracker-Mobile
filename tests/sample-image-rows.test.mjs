@@ -44,8 +44,9 @@ function contextFor(sheet) {
   const ss = { getSheetByName: name => name === 'DA RCPC Samples' ? sheet : null, getSpreadsheetTimeZone: () => 'Asia/Manila', getUrl: () => 'https://docs.google.com/spreadsheets/d/test' };
   const ctx = vm.createContext({
     console,
-    CFG: { title: 'Tracker', thesisTitle: 'Test', classes: ['Healthy'], photoAngles: ['Whole leaf', 'Left side only', 'Top lesions', 'Right side only', 'Back in different light'],
+    CFG: { title: 'Tracker', thesisTitle: 'Test', maxRows: 20, classes: ['Healthy'], expenseCategories: ['Sample collection', 'Printing', 'Transport', 'Other'], photoAngles: ['Whole leaf', 'Left side only', 'Top lesions', 'Right side only', 'Back in different light'],
       members: [{ tab: 'Fe Anne', prefix: 'FA', light: '#eee' }, { tab: 'Rho', prefix: 'RJ', light: '#eee' }] },
+    RECORDS: { sources: { tab: 'Dataset Sources', fields: [['name', 'Name', 'text'], ['cordana', 'Cordana', 'num'], ['by', 'By', 'text']] } },
     LINKS: {},
     SpreadsheetApp: { getActive: () => ss },
     PropertiesService: { getScriptProperties: () => ({ getProperty: () => '' }) },
@@ -114,6 +115,18 @@ test('deleting a sample removes its five image rows and keeps the next sample', 
   assert.equal(sh.rows.some(r => String(r[6]).startsWith('FA-001_')), false);
 });
 
+test('a failed sample delete keeps its Drive photos', () => {
+  const sh = fakeSheet();
+  sh.rows[3][0] = 'FA-001';
+  const app = contextFor(sh);
+  app.ensureSampleImageRows_(sh, 'FA-001');
+  const file = { trashed: false, setTrashed(value) { this.trashed = value; } };
+  app.photoFilesFor_ = () => [file];
+  sh.deleteRows = () => { throw new Error('Sheet unavailable'); };
+  assert.throws(() => app.deleteSample('FA-001'), /Sheet unavailable/);
+  assert.equal(file.trashed, false);
+});
+
 test('deleting one image updates its child row and parent count without touching another view', () => {
   const sh = fakeSheet();
   sh.rows[3][0] = 'FA-001';
@@ -139,6 +152,18 @@ test('deleting one image updates its child row and parent count without touching
   assert.equal(patch.images[1].url, 'https://drive.google.com/file/d/2/view');
 });
 
+test('a failed image delete restores the Drive photo', () => {
+  const sh = fakeSheet();
+  sh.rows[3][0] = 'FA-001';
+  const app = contextFor(sh);
+  app.ensureSampleImageRows_(sh, 'FA-001');
+  const file = { trashed: false, getName: () => 'FA-001_01.jpg', setTrashed(value) { this.trashed = value; } };
+  app.photoFilesFor_ = () => file.trashed ? [] : [file];
+  app.withLock_ = () => { throw new Error('Sheet unavailable'); };
+  assert.throws(() => app.deletePhoto('FA-001', 1), /Sheet unavailable/);
+  assert.equal(file.trashed, false);
+});
+
 test('expense edits save together and preserve subtotal and receipt cells', () => {
   const sh = fakeSheet();
   sh.rows[2][0] = 'Old item';
@@ -157,4 +182,91 @@ test('expense edits save together and preserve subtotal and receipt cells', () =
   assert.match(sh.formulas[2][10], /receipt\/view/);
   assert.throws(() => app.updateSupplyDetails(3, { item: '', qty: 1, cost: 2 }), /Item name/);
   assert.throws(() => app.updateSupplyDetails(3, { item: 'No', qty: -1, cost: 2 }), /cannot be negative/);
+});
+
+test('expense create, edit, and delete keep formulas and reject bad input before writing', () => {
+  const sh = fakeSheet();
+  sh.rows[2][4] = 'subtotal';
+  sh.formulas[2][4] = '=C3*D3';
+  sh.rows[11][3] = 'TOTAL';
+  const app = contextFor(sh);
+  assert.throws(() => app.addSupply({ item: 'Bad', qty: -2, category: 'Printing' }), /cannot be negative/);
+  assert.equal(sh.rows[2][0], '');
+  assert.throws(() => app.addSupply({ item: 'Bad', qty: 1, category: 'Printing', date: '2026-02-30' }), /date does not exist/);
+  assert.equal(sh.rows[2][0], '');
+  const created = app.addSupply({ item: 'Markers', qty: 2, cost: 25, assigned: 'Fe Anne', category: 'Printing', date: '2026-11-15', bought: false });
+  assert.equal(created.row, 3);
+  assert.equal(sh.rows[2][0], 'Markers');
+  assert.equal(sh.rows[2][2], 2);
+  assert.equal(sh.rows[2][3], 25);
+  assert.equal(sh.formulas[2][4], '=C3*D3');
+  assert.throws(() => app.updateSupplyDetails(3, { item: 'Changed', qty: 1, cost: 2,
+    assigned: 'Unknown', category: 'Printing', date: '2026-11-15' }), /valid buyer/);
+  assert.equal(sh.rows[2][0], 'Markers', 'failed edit did not change earlier columns');
+  assert.equal(app.updateSupply(3, 'cost', 30), true);
+  assert.equal(sh.rows[2][3], 30);
+  assert.equal(app.deleteSupply(3), true);
+  assert.equal(sh.rows[2][0], '');
+  assert.equal(sh.formulas[2][4], '=C3*D3');
+  assert.throws(() => app.updateSupply(3, 'item', 'Stale write'), /no longer exists/);
+});
+
+test('a queued receipt cannot attach to a different expense that reused the row', () => {
+  const sh = fakeSheet();
+  sh.rows[2][0] = 'New expense';
+  sh.rows[11][3] = 'TOTAL';
+  const app = contextFor(sh);
+  assert.throws(() => app.uploadReceipt(3, 'A'.repeat(120), 'Old expense', '2026-11-15'), /expense changed/);
+  assert.equal(sh.rows[2][10], '');
+});
+
+test('stale expense edits and deletes cannot touch a reused row', () => {
+  const sh = fakeSheet();
+  sh.rows[2][0] = 'New expense';
+  sh.rows[11][3] = 'TOTAL';
+  const app = contextFor(sh);
+  assert.throws(() => app.updateSupply(3, 'cost', 99, 'Old expense'), /expense changed/);
+  assert.throws(() => app.updateSupplyDetails(3, { item: 'Changed', qty: 1, cost: 99 }, 'Old expense'), /expense changed/);
+  assert.throws(() => app.deleteSupply(3, 'Old expense'), /expense changed/);
+  assert.equal(sh.rows[2][0], 'New expense');
+  assert.equal(sh.rows[2][3], '');
+});
+
+test('repeating a create request after a lost response does not add another row', () => {
+  const props = new Map();
+  const remembered = { getProperty: key => props.get(key) || '', setProperty: (key, value) => props.set(key, value), deleteProperty: key => props.delete(key) };
+  const sh = fakeSheet();
+  sh.rows[11][3] = 'TOTAL';
+  const app = contextFor(sh);
+  app.PropertiesService = { getScriptProperties: () => remembered };
+  const expense = { item: 'Markers', qty: 2, cost: 25, category: 'Printing', date: '2026-11-15' };
+  const first = app.addSupply(expense, 'expense-request-001');
+  const retry = app.addSupply(expense, 'expense-request-001');
+  assert.equal(first.row, retry.row);
+  assert.equal(sh.rows.filter(r => r[0] === 'Markers').length, 1);
+  const task = app.addTask('Fe Anne', { task: 'Collect leaves' }, 'task-request-001');
+  assert.equal(app.addTask('Fe Anne', { task: 'Collect leaves' }, 'task-request-001').row, task.row);
+  assert.equal(sh.rows.filter(r => r[1] === 'Collect leaves').length, 1);
+  const record = app.addRecord('sources', { name: 'Dataset' }, 'record-request-001');
+  assert.equal(app.addRecord('sources', { name: 'Dataset' }, 'record-request-001').row, record.row);
+  assert.equal(sh.rows.filter(r => r[0] === 'Dataset').length, 1);
+});
+
+test('task and record writes reject stale rows instead of silently changing empty slots', () => {
+  const sh = fakeSheet();
+  const app = contextFor(sh);
+  const task = app.addTask('Fe Anne', { task: 'Collect leaves', due: '2026-11-15' });
+  assert.equal(task.row, 4);
+  assert.equal(app.updateTask('Fe Anne', 4, 'task', 'Collect healthy leaves'), true);
+  assert.equal(sh.rows[3][1], 'Collect healthy leaves');
+  assert.equal(app.deleteTask('Fe Anne', 4), true);
+  assert.throws(() => app.updateTask('Fe Anne', 4, 'task', 'Stale edit'), /no longer exists/);
+
+  const record = app.addRecord('sources', { name: 'Dataset', cordana: 10 });
+  assert.equal(record.row, 3);
+  assert.throws(() => app.updateRecord('sources', 3, 'cordana', 'bad'), /valid number/);
+  assert.equal(sh.rows[2][1], 10);
+  assert.equal(app.updateRecord('sources', 3, 'cordana', 20).cordana, 20);
+  assert.equal(app.deleteRecord('sources', 3), true);
+  assert.throws(() => app.updateRecord('sources', 3, 'name', 'Stale edit'), /no longer exists/);
 });

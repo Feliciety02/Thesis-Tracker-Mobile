@@ -58,6 +58,7 @@ final class UploadStore {
     static void enqueue(Context context, JSONObject job) throws IOException, JSONException {
         synchronized (LOCK) {
             String key = job.getString("key");
+            if (job.optString("owner", "").isEmpty()) throw new IOException("Upload owner is missing");
             long at = job.getLong("at");
             String b64 = job.getString("b64");
             if (at <= 0 || b64.length() < 100 || b64.length() > 12_000_000)
@@ -82,15 +83,12 @@ final class UploadStore {
         return files;
     }
 
-    static JSONObject next(Context context) throws IOException, JSONException {
-        return next(context, java.util.Collections.emptySet());
-    }
-
-    static JSONObject next(Context context, Set<String> skipped) throws IOException, JSONException {
+    static JSONObject next(Context context, Set<String> skipped, String owner) throws IOException, JSONException {
         synchronized (LOCK) {
             for (File pending : list(folder(context, "pending"))) {
                 JSONObject job = read(pending);
                 if (job == null) continue;
+                if (!owner.equals(job.optString("owner", ""))) continue;
                 if (skipped.contains(job.getString("key"))) continue;
                 JSONObject done = read(file(context, "done", job.getString("key")));
                 if (done != null && done.optLong("at") == job.optLong("at")) {
@@ -113,6 +111,7 @@ final class UploadStore {
             done.put("key", key);
             done.put("at", job.getLong("at"));
             done.put("kind", job.optString("kind", "sample"));
+            done.put("owner", job.optString("owner", ""));
             done.put("patch", patch);
             write(file(context, "done", key), done);
             if (!pending.delete()) throw new IOException("Cannot clear uploaded photo");
@@ -139,6 +138,7 @@ final class UploadStore {
                 item.put("key", job.getString("key"));
                 item.put("at", job.getLong("at"));
                 item.put("error", job.optString("error", ""));
+                item.put("owner", job.optString("owner", ""));
                 pending.put(item);
             }
             for (File f : list(folder(context, "done"))) {

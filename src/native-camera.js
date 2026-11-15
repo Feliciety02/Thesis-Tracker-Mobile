@@ -77,7 +77,7 @@ window.ThesisNativeCamera = {
 
 window.ThesisBackgroundUpload = {
   available: !!BackgroundUpload,
-  setSession: (token, url) => BackgroundUpload.setSession({ token, url }),
+  setSession: (token, url, owner) => BackgroundUpload.setSession({ token, url, owner }),
   clearSession: () => BackgroundUpload.clearSession(),
   enqueue: job => BackgroundUpload.enqueue({ job }),
   status: () => BackgroundUpload.status(),
@@ -86,4 +86,5 @@ window.ThesisBackgroundUpload = {
   saveNamedPhoto: (name, b64) => BackgroundUpload.saveNamedPhoto({ name, b64 }),
   deleteNamedPhoto: name => BackgroundUpload.deleteNamedPhoto({ name }),
   readNamedPhoto: name => BackgroundUpload.readNamedPhoto({ name }),
+  scanNamedPhotos: requestAll => BackgroundUpload.scanNamedPhotos({ requestAll: !!requestAll }),
 };
