@@ -50,15 +50,16 @@ These are **unedited 1080 × 2400 PNGs from the signed 1.0.20 Android app** on a
 ## How it works
 
 ```mermaid
-flowchart LR
-    A["Android app or web app"] --> B["Tasks, panel, samples, expenses"]
+flowchart TD
+    A["Android app or web app"]
+    A --> B["Tasks, panel, samples, expenses"]
+    A -->|Android capture| G["Named Gallery photo"]
     B --> C["Local copy and pending changes"]
+    G --> H["Background photo queue"]
     C -->|App online| D["Apps Script API"]
+    H -->|Network available| D
     D --> E["Team Google Sheet"]
     D --> F["Google Drive photos and receipts"]
-    A -->|Android capture| G["Named Gallery photo"]
-    G --> H["Background photo queue"]
-    H -->|Network available| D
     E --> I["Other signed-in devices"]
     classDef local fill:#eef4e4,stroke:#588d10,color:#1f3b33
     classDef shared fill:#e8f2ed,stroke:#1f4b3a,color:#1f3b33
