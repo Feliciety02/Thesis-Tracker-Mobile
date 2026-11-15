@@ -1,14 +1,92 @@
-<p align="center"><img src="icons/logo.svg" width="120" alt="Banana Thesis Tracker logo"></p>
+<p align="center">
+  <img src="docs/readme-banner.svg" width="1200" alt="Illustrated Banana Thesis Tracker banner showing the sample workflow on Android">
+</p>
 
-# Banana Thesis Tracker
+<h1 align="center">Banana Thesis Tracker</h1>
 
-Installable task tracker app for the thesis
-**"An Enhanced EfficientNetB0 Architecture for Mobile Banana Leaf Disease Classification"**
-(BSCS Capstone, University of Mindanao).
+<p align="center">A fieldwork app for banana leaf samples, team tasks, panel revisions, and thesis expenses. Capture on Android, continue offline, and sync with the team's Google Sheet and Drive.</p>
 
-- **Team:** Fe Anne Malasarte (Team Leader), Rho Alphone Jornadal (ML Lead), Charisse Priego (Documentation Lead)
-- **Frontend:** this repo, hosted free on GitHub Pages. It's an installable app (PWA) that works offline with the last synced data.
-- **Database:** the team's Google Sheet, reached through a small Apps Script API. Every change is logged with who made it on the sheet's **Activity** tab.
+<p align="center"><code>Android 1.0.20</code> &nbsp; <code>Web / PWA</code> &nbsp; <code>Capacitor</code> &nbsp; <code>Google Sheets + Drive</code></p>
+
+<p align="center">
+  <a href="#app-tour"><strong>App tour</strong></a> &nbsp;·&nbsp;
+  <a href="#how-it-works"><strong>How it works</strong></a> &nbsp;·&nbsp;
+  <a href="#get-the-android-app"><strong>Android APK</strong></a> &nbsp;·&nbsp;
+  <a href="docs/screenshots/banana-thesis-tracker-v1.0.20/README.md"><strong>Screenshot archive</strong></a>
+</p>
+
+Built for the BSCS capstone **“An Enhanced EfficientNetB0 Architecture for Mobile Banana Leaf Disease Classification”** at the University of Mindanao. The tracker coordinates collection and research work; DA RCPC supplies the validated disease results. The frontend is hosted on GitHub Pages, and the shared data lives in a Google Sheet behind an Apps Script API. Activity is logged by user.
+
+## At a glance
+
+<table>
+  <tr>
+    <td align="center" width="25%"><strong>01 · Samples</strong><br><sub>Named five-view photos, collection status, RCPC submission</sub></td>
+    <td align="center" width="25%"><strong>02 · Tasks</strong><br><sub>Team assignments, due dates, and overdue work</sub></td>
+    <td align="center" width="25%"><strong>03 · Panel</strong><br><sub>Revision matrix and NG checklist progress</sub></td>
+    <td align="center" width="25%"><strong>04 · Expenses</strong><br><sub>Purchases, buyers, totals, and receipt photos</sub></td>
+  </tr>
+</table>
+
+Android saves named sample photos in the phone's Gallery and queues Drive uploads. Photo uploads can continue after the app closes when Android has a working network connection; other offline changes sync when the app opens. The tracker records RCPC results and research progress; it does not diagnose a leaf.
+
+## App tour
+
+These are **unedited 1080 × 2400 PNGs from the signed 1.0.20 Android app** on a USB-connected realme RMX2151. They show a snapshot of the signed-in account's live data on November 16, 2026. Select any image to open it at full size. The [screenshot archive](docs/screenshots/banana-thesis-tracker-v1.0.20/README.md) records the capture method, device, version, and SHA-256 hashes.
+
+<table>
+  <tr>
+    <td align="center"><a href="docs/screenshots/banana-thesis-tracker-v1.0.20/01-home.png"><img src="docs/screenshots/banana-thesis-tracker-v1.0.20/01-home.png" width="220" alt="Home showing alerts and team progress"></a><br><strong>1 · Home</strong><br><sub>Next actions and progress</sub></td>
+    <td align="center"><a href="docs/screenshots/banana-thesis-tracker-v1.0.20/02-samples-overview.png"><img src="docs/screenshots/banana-thesis-tracker-v1.0.20/02-samples-overview.png" width="220" alt="Samples overview with counts and submission queue"></a><br><strong>2 · Samples</strong><br><sub>Collection and upload status</sub></td>
+    <td align="center"><a href="docs/screenshots/banana-thesis-tracker-v1.0.20/03-sample-status.png"><img src="docs/screenshots/banana-thesis-tracker-v1.0.20/03-sample-status.png" width="220" alt="Sample cards showing photos, bagging, submission, and result stages"></a><br><strong>3 · Leaf status</strong><br><sub>Photos through RCPC result</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="docs/screenshots/banana-thesis-tracker-v1.0.20/04-tasks.png"><img src="docs/screenshots/banana-thesis-tracker-v1.0.20/04-tasks.png" width="220" alt="Task list with member filter and overdue work"></a><br><strong>4 · Tasks</strong><br><sub>Assignments and deadlines</sub></td>
+    <td align="center"><a href="docs/screenshots/banana-thesis-tracker-v1.0.20/05-panel-revisions.png"><img src="docs/screenshots/banana-thesis-tracker-v1.0.20/05-panel-revisions.png" width="220" alt="Panel revisions with completion progress and page numbers"></a><br><strong>5 · Panel</strong><br><sub>Revision progress</sub></td>
+    <td align="center"><a href="docs/screenshots/banana-thesis-tracker-v1.0.20/06-expenses.png"><img src="docs/screenshots/banana-thesis-tracker-v1.0.20/06-expenses.png" width="220" alt="Expenses with totals, items, and receipt actions"></a><br><strong>6 · Expenses</strong><br><sub>Purchases and receipts</sub></td>
+  </tr>
+</table>
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["Android app or web app"] --> B["Tasks, panel, samples, expenses"]
+    B --> C["Local copy and pending changes"]
+    C -->|App online| D["Apps Script API"]
+    D --> E["Team Google Sheet"]
+    D --> F["Google Drive photos and receipts"]
+    A -->|Android capture| G["Named Gallery photo"]
+    G --> H["Background photo queue"]
+    H -->|Network available| D
+    E --> I["Other signed-in devices"]
+    classDef local fill:#eef4e4,stroke:#588d10,color:#1f3b33
+    classDef shared fill:#e8f2ed,stroke:#1f4b3a,color:#1f3b33
+    class A,B,C,G,H local
+    class D,E,F,I shared
+```
+
+The Android app stores a private upload copy until Drive confirms each photo. A named Gallery copy can help recover photos after reinstall when Gallery access is granted. Android schedules background photo retries; task and expense changes use the app's ordered sync queue when it next opens with a connection.
+
+## Get the Android app
+
+Download the signed [Banana Thesis Tracker 1.0.20 APK](docs/releases/1.0.20/Banana-Thesis-Tracker-Android-1.0.20.apk). Its [SHA-256 checksum](docs/releases/1.0.20/SHA256SUMS.txt) is included. **Install it over an existing team release; do not uninstall first** if photos are waiting to upload. The Chrome-installed web app has separate phone storage from the native Android app.
+
+The APK contains the current Android interface and background uploader. Changes to the shared Apps Script service take effect only after the deployment owner publishes a [new web-app version](#update-the-apps-script-copy-and-paste).
+
+## Explore the repository
+
+| Area | Start here | What you will find |
+| --- | --- | --- |
+| App interface | [index.html](index.html) · [src/native-camera.js](src/native-camera.js) | Screens, offline queue, and native camera bridge |
+| Android wrapper | [android/](android/) | Capacitor project and background photo upload worker |
+| Shared backend | [apps-script/](apps-script/) | Google Sheet setup, authenticated API, and Drive uploads |
+| Android evidence | [screenshots](docs/screenshots/banana-thesis-tracker-v1.0.20/README.md) | Original phone captures and hashes |
+| Checks | [tests/](tests/) · [scripts/](scripts/) | CRUD, Gallery recovery, and browser smoke checks |
+
+## Setup and field guide
+
+**Team:** Fe Anne Malasarte (Team Leader), Rho Alphone Jornadal (ML Lead), Charisse Priego (Documentation Lead).
 
 ## Update the Apps Script (copy and paste)
 The script files and manifest are in the [`apps-script`](apps-script/) folder of this repo:
@@ -52,7 +130,7 @@ If the older deployed script says `Cannot call SpreadsheetApp.getUi() from this 
 4. After about a minute, the app is live at `https://<your-username>.github.io/<repo-name>/`.
 
 ### 3. Install on phones
-- **Android native app (named Gallery photos and background Drive upload):** download the [signed team APK](https://github.com/Feliciety02/ThesisTracker/releases/download/android-team-1.0.16-2026-11-10/Banana-Thesis-Tracker-Android-1.0.16.apk). Its launcher icon matches the green leaf used by the website. Installing the website from Chrome does not give it native Gallery access or Android background uploads.
+- **Android native app (named Gallery photos and background Drive upload):** download the [signed 1.0.20 team APK](docs/releases/1.0.20/Banana-Thesis-Tracker-Android-1.0.20.apk). Its launcher icon matches the green leaf used by the website. Installing the website from Chrome does not give it native Gallery access or Android background uploads.
 - **Android web app (Chrome):** open the link, then tap **Install** on the first screen, or on the Home card that shows until the app is installed (or ⋮ → Install app).
 - **iPhone (Safari):** open the link, then Share → **Add to Home Screen**.
 - **Laptop (Chrome / Edge):** use the install icon in the address bar.
