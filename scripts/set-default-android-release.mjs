@@ -8,7 +8,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 const version = process.argv[2] || packageJson.version;
 if (!/^\d+\.\d+\.\d+$/.test(version || '')) {
-  throw new Error('Usage: npm run release:default [-- 1.0.21]');
+  throw new Error('Usage: npm run release:default [-- <version>]');
 }
 
 const packageLock = JSON.parse(await readFile(join(root, 'package-lock.json'), 'utf8'));

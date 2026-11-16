@@ -1722,7 +1722,7 @@ function render() {
       key: editor.id ? '#' + editor.id : editor.dataset.expenseEdit ? '[data-expense-edit="' + editor.dataset.expenseEdit + '"]' : '.recform[data-kind="' + editor.dataset.kind + '"]',
       fields: [...editor.querySelectorAll('input, select, textarea')].map(field => ({ value: field.value, checked: field.checked }))
     }));
-  const keepTaskScroll = S.view === 'tasks' && app.dataset.view === 'tasks';
+  const keepTaskScroll = S.view === 'tasks' && app.dataset.currentView === 'tasks';
   const taskScroll = keepTaskScroll ? window.scrollY : 0;
   const d = S.data;
   document.getElementById('thesis').textContent = d.thesisTitle;
@@ -1757,7 +1757,7 @@ function render() {
       else field.value = fields[i].value;
     });
   });
-  app.dataset.view = S.view;
+  app.dataset.currentView = S.view;
   if (S.view === 'tasks') renderTaskList();
   markScrollers();
   if (keepTaskScroll && Math.abs(window.scrollY - taskScroll) > 2) window.scrollTo(0, taskScroll);
@@ -1918,7 +1918,7 @@ function vTasks() {
       '<button type="button" class="clr" id="qClear" data-action="clearSearch" aria-label="Clear search"' + (S.q ? '' : ' hidden') + '>' + ic('close') + '</button></span></div>' +
     '<div class="addwrap' + (S.addTaskOpen ? ' open' : '') + '"><button class="btn ' + (S.addTaskOpen ? 'ghost ' : '') + 'addtoggle" data-action="toggleAddTask">' + (S.addTaskOpen ? '' + ic('close') + ' Cancel' : '' + ic('add') + ' Add task') + '</button>' +
     '<form class="add card" id="addForm" style="padding:12px">' +
-    '<label class="fl wide">Task<input type="text" name="task" placeholder="What needs doing?" required></label>' +
+    '<label class="fl wide">Task<input type="text" name="task" placeholder="What needs doing?" enterkeyhint="next" required></label>' +
     '<label class="fl">For<select name="tab">' + d.members.map(m => '<option' + (m.tab === defMember ? ' selected' : '') + '>' + esc(m.tab) + '</option>').join('') + '</select></label>' +
     '<label class="fl">Due<input type="date" name="due"></label>' +
     '<label class="fl">Category<select name="category">' + opt(L.categories, 'DA RCPC') + '</select></label>' +
@@ -3330,7 +3330,7 @@ function vSupplies() {
       '<div class="chips paidby"><span class="k">Paid by</span>' + perPerson + '</div></div>' +
     '<div class="addwrap' + (S.addExpOpen ? ' open' : '') + '"><button class="btn ' + (S.addExpOpen ? 'ghost ' : '') + 'addtoggle" data-action="toggleAddExp">' + (S.addExpOpen ? '' + ic('close') + ' Cancel' : '' + ic('add') + ' Add expense') + '</button>' +
     '<form id="addSupply" class="card addsup">' +
-      '<label class="fl wide">Item<input type="text" name="item" placeholder="e.g. Printing, 3 copies" required></label>' +
+      '<label class="fl wide">Item<input type="text" name="item" placeholder="e.g. Printing, 3 copies" enterkeyhint="next" required></label>' +
       '<label class="fl">Category' + sel(cats, 'Printing', 'name="category"') + '</label>' +
       '<label class="fl">Date<input type="date" name="date" value="' + localDay() + '"></label>' +
       '<label class="fl">Qty<input type="number" name="qty" min="0" value="1" inputmode="numeric"></label>' +
@@ -3597,7 +3597,7 @@ function vLinks() {
    Events
    ========================================================= */
 document.addEventListener('click', e => {
-  const el = e.target.closest('[data-view],[data-action]');
+  const el = e.target.closest('button[data-view],[data-action]');
   if (!el) return;
   if (el.dataset.view) { S.view = el.dataset.view; S.addTaskOpen = S.addExpOpen = false; render(); window.scrollTo(0, 0); return; }
   const a = el.dataset.action, v = el.dataset.v;
@@ -3958,8 +3958,23 @@ document.addEventListener('toggle', e => {
   if (e.target.matches('details[data-action=prefarmToggle]')) { S.prefarmOpen = e.target.open; if (e.target.open) store.del(PREFARM_CLOSED); else store.set(PREFARM_CLOSED, localDay()); }
 }, true);
 document.addEventListener('keydown', e => {
+  // Android's keyboard action key sends Enter. Move through add forms instead
+  // of implicitly submitting after the first field and closing the form.
+  if (e.key === 'Enter' && !e.isComposing && e.target.matches &&
+      e.target.matches('input:not([type]), input[type=text], input[type=number], input[type=email], input[type=tel], input[type=url]')) {
+    const form = e.target.closest('#addForm, #addSupply, form.recform');
+    if (form) {
+      e.preventDefault();
+      const fields = [...form.querySelectorAll('input, select, textarea, button[type=submit]')]
+        .filter(field => !field.disabled && field.getClientRects().length && field.type !== 'hidden');
+      const next = fields[fields.indexOf(e.target) + 1];
+      if (next) next.focus();
+      return;
+    }
+  }
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('[role=button][data-action]')) { e.preventDefault(); e.target.click(); }
   if (e.key === 'Escape') {                       // Esc closes whatever is open (not the camera)
+    if (IS_PHONE && e.target.matches && e.target.matches('input, select, textarea')) return;
     if (S.cam && S.cam.preview) { closePhotoPreview(); return; }
     if (S.drawer) { openDrawer(false); return; }
     if (S.ov) { closeOv(); return; }

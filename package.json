@@ -1,6 +1,6 @@
 {
   "name": "banana-thesis-tracker",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "private": true,
   "scripts": {
     "build:native": "node scripts/build-native.mjs",
@@ -8,6 +8,7 @@
     "release:default": "node scripts/set-default-android-release.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:browser": "node scripts/smoke-crud-browser.mjs",
+    "test:touch": "node scripts/smoke-touch-browser.mjs",
     "test:photo-queue": "node --test tests/photo-queue.test.mjs"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "@capacitor/android": "^8.6.0",
     "@capacitor/cli": "^8.6.0",
     "esbuild": "^0.25.0",
-    "fake-indexeddb": "^6.2.7"
+    "fake-indexeddb": "^6.2.7",
+    "playwright-core": "^1.65.1"
   }
 }
