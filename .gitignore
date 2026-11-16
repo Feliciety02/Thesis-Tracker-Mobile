@@ -15,3 +15,11 @@ signing.properties
 /*.apk
 /*.apk.sha256
 /*.apk.idsig
+!/Banana-Thesis-Tracker-Android.apk
+!/Banana-Thesis-Tracker-Android.apk.sha256
+!/Banana-Thesis-Tracker-Android-*.apk
+!/Banana-Thesis-Tracker-Android-*.apk.sha256
+/Banana-Thesis-Tracker-Android-1.0.19.apk
+/Banana-Thesis-Tracker-Android-1.0.19.apk.sha256
+/Banana-Thesis-Tracker-Android-1.0.20.apk
+/Banana-Thesis-Tracker-Android-1.0.20.apk.sha256

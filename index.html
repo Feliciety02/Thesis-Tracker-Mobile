@@ -1127,7 +1127,6 @@ async function call(fn, ...args) {
     if (/lock timeout|timed out|too many times|maximum execution|temporarily|try again/i.test(err.message)) err.network = err.server = true;   // Google was busy: retry later
     throw err;
   }
-  if (fn === 'getData' && j.data) store.set(DATA_STORE, JSON.stringify({ at: Date.now(), d: j.data }));
   return j.data;
 }
 
@@ -1417,10 +1416,18 @@ function toast(msg, ms, err) {
    Load + save
    ========================================================= */
 function load(quiet) {
+  const writeSeq = S.localWriteSeq || 0;
   return flushOutbox().then(() => {
     if (outbox().length) { const e = new Error('pending'); e.network = true; throw e; }
     return call('getData');
   }).then(d => {
+    // Fetch in the background, but keep the current data and DOM together while
+    // an editor is open or a local write began during this request.
+    if (S.data && (isTyping() || writeSeq !== (S.localWriteSeq || 0))) {
+      S.refreshPending = true;
+      setOffline(false);
+      return;
+    }
     // a sample started on this phone that the server hasn't confirmed yet must not disappear (e.g. the app was closed mid-save)
     const fresh = new Set((d.samples || []).map(x => x.id));
     const unconfirmed = ((S.data && S.data.samples) || []).filter(x => !x.row && !fresh.has(x.id));
@@ -1428,12 +1435,12 @@ function load(quiet) {
       d.samples.push(x);
       if (x.date) call('createSample', x.id, x.date).then(r => { const y = sampleById(x.id); if (y && r) { y.row = r.row; persist(); } }).catch(() => {});
     });
+    S.refreshPending = false;
     S.data = d;
     S.serverPhotoLimit = Array.isArray(d.photoAngles) ? d.photoAngles.length : 0;
     S.galleryRecoveryFresh = true;
     setOffline(false); persist();
-    if (!quiet || !isTyping()) render();
-    renderCam();
+    if (quiet) renderWhenIdle(); else render();
     if (!S.galleryRecoveryChecked && nativeUploadAvailable() && window.ThesisBackgroundUpload.scanNamedPhotos) {
       S.galleryRecoveryChecked = true;
       recoverGalleryPhotos(false);
@@ -1445,7 +1452,7 @@ function load(quiet) {
     if (c || S.data) {
       if (!S.data) S.data = c.d;
       setOffline(true, c ? c.at : Date.now());
-      if (!isTyping()) render();
+      renderWhenIdle();
       return;
     }
     document.getElementById('app').innerHTML = '<div class="empty">Could not load the tracker: ' + esc(e && e.message || e) + '</div>';
@@ -1540,7 +1547,7 @@ function finishSignIn(r) {
   S.sampleFilter = null;
   toast('Hi ' + r.user, 1500);
   flushPhotos();
-  load().then(() => { resumeCam(); return flushPhotos(); });
+  load(!!S.data).then(() => { resumeCam(); return flushPhotos(); });
 }
 function logout() {
   if (!confirm('Log out of this device?')) return;
@@ -1564,8 +1571,33 @@ function signIn(tab) {
 }
 function isTyping() {
   const a = document.activeElement;
-  return a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !/checkbox|radio|button|submit/.test(a.type)));
+  if (a && (a.matches('textarea, select, [contenteditable="true"]') ||
+      (a.tagName === 'INPUT' && !/button|submit|reset|hidden/.test(a.type)))) return true;
+  // A native select menu can move focus to the browser or Android picker. Keep
+  // the editor mounted until the user explicitly saves or closes it.
+  return !!(S.drawer || S.ov || S.cam ||
+    (S.view === 'tasks' && (S.addTaskOpen || S.editTask)) ||
+    (S.view === 'supplies' && (S.addExpOpen || document.querySelector('#app [data-expense-edit]'))) ||
+    (S.view === 'more' && S.addRec) ||
+    [...document.querySelectorAll('#addForm, #addSupply')].some(form =>
+      form.getClientRects().length && [...form.elements].some(field =>
+        field.tagName === 'SELECT' ? field.selectedIndex !== Math.max(0, [...field.options].findIndex(option => option.defaultSelected)) :
+        field.type === 'checkbox' || field.type === 'radio' ? field.checked !== field.defaultChecked :
+        'defaultValue' in field && field.value !== field.defaultValue)));
 }
+function renderWhenIdle() {
+  if (isTyping()) S.needsRender = true;
+  else render();
+}
+function resumeBackgroundUpdate() {
+  if (isTyping()) return;
+  if (S.needsRender) render();
+  else if (S.refreshPending) {
+    S.refreshPending = false;
+    return load(true);
+  }
+}
+document.addEventListener('focusout', () => setTimeout(resumeBackgroundUpdate, 0));
 function persist() { if (S.data) store.set(DATA_STORE, JSON.stringify({ at: Date.now(), d: S.data })); }
 /* ---------- offline outbox: every change is kept on the phone until the server has it ---------- */
 const OUTBOX = 'bt:outbox';
@@ -1654,9 +1686,10 @@ function createRequestId() {
     Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 function save(fn, args, apply, onQueued) {
+  S.localWriteSeq = (S.localWriteSeq || 0) + 1;
   if (apply) apply();
-  if (apply) { persist(); if (!isTyping()) render(); }
-  const queue = () => { const meta = onQueued ? onQueued() : null; queueWrite(fn, args, meta); persist(); if (!isTyping()) render(); return null; };
+  if (apply) { persist(); renderWhenIdle(); }
+  const queue = () => { const meta = onQueued ? onQueued() : null; queueWrite(fn, args, meta); persist(); renderWhenIdle(); return null; };
   if (!DEMO && (!navigator.onLine || outbox().length)) return Promise.resolve(queue());   // keep changes in order
   toast('Saving…');
   return call(fn, ...args).then(d => {
@@ -1678,7 +1711,17 @@ function save(fn, args, apply, onQueued) {
    ========================================================= */
 function render() {
   if (!S.data) return;
+  S.needsRender = false;
   const app = document.getElementById('app');
+  // Explicit page actions still render. Carry unsaved fields through those
+  // renders, including a filter change made while an expense editor is open.
+  const drafts = [...app.querySelectorAll('#addForm, #addSupply, .recform[data-kind], [data-expense-edit]')]
+    .filter(editor => editor.getClientRects().length &&
+      (!editor.matches('#addForm, #addSupply') || editor.closest('.addwrap.open')))
+    .map(editor => ({
+      key: editor.id ? '#' + editor.id : editor.dataset.expenseEdit ? '[data-expense-edit="' + editor.dataset.expenseEdit + '"]' : '.recform[data-kind="' + editor.dataset.kind + '"]',
+      fields: [...editor.querySelectorAll('input, select, textarea')].map(field => ({ value: field.value, checked: field.checked }))
+    }));
   const keepTaskScroll = S.view === 'tasks' && app.dataset.view === 'tasks';
   const taskScroll = keepTaskScroll ? window.scrollY : 0;
   const d = S.data;
@@ -1705,10 +1748,23 @@ function render() {
   renderDrawer(); renderFab();
   const fn = { overview: vOverview, tasks: vTasks, revisions: vRevisions, samples: vSamples, supplies: vSupplies, more: vMore }[S.view] || vOverview;
   app.innerHTML = fn();
+  drafts.forEach(({ key, fields }) => {
+    const editor = app.querySelector(key);
+    if (!editor || !editor.getClientRects().length) return;
+    editor.querySelectorAll('input, select, textarea').forEach((field, i) => {
+      if (!fields[i]) return;
+      if (field.type === 'checkbox' || field.type === 'radio') field.checked = fields[i].checked;
+      else field.value = fields[i].value;
+    });
+  });
   app.dataset.view = S.view;
   if (S.view === 'tasks') renderTaskList();
   markScrollers();
   if (keepTaskScroll && Math.abs(window.scrollY - taskScroll) > 2) window.scrollTo(0, taskScroll);
+  if (S.refreshPending && !isTyping()) {
+    S.refreshPending = false;
+    setTimeout(() => load(true), 0);
+  }
 }
 /* ---------- side menu: profile + the less-used sections ---------- */
 function openDrawer(open) {
@@ -1717,7 +1773,8 @@ function openDrawer(open) {
   d.hidden = !open; b.setAttribute('aria-expanded', open);
   document.body.classList.toggle('noscroll', open);
   renderDrawer();
-  if (open) { const f = d.querySelector('.ditem-go'); if (f) f.focus(); } else b.focus();
+  if (open) { const f = d.querySelector('.ditem-go'); if (f) f.focus(); }
+  else { b.focus(); resumeBackgroundUpdate(); }
 }
 function renderDrawer() {
   if (!S.drawer || !S.data) return;
@@ -2901,7 +2958,7 @@ async function syncNativePhotos() {
       else if (/Please sign in/i.test(prior.error || '')) { lock('Sign in again to finish pending Google Drive uploads.'); return; }
     }
     updateSyncChip();
-    if (changed && S.data && S.view !== 'tasks' && !isTyping()) render();
+    if (changed && S.data && S.view !== 'tasks') renderWhenIdle();
   })().catch(e => { toast('Could not check background uploads: ' + (e.message || e), 4000, true); })
     .finally(() => { nativeSync = null; });
   return nativeSync;
@@ -2945,7 +3002,7 @@ function recoverGalleryPhotos(requestAll) {
     const user = S.user;
     const report = { scanning: true, access: '', recovered: 0, unmatched: 0, unmatchedPhotos: [], errors: [] };
     S.galleryRecovery = report;
-    if (S.view === 'samples' && !isTyping()) render();
+    if (S.view === 'samples') renderWhenIdle();
     try {
       const scan = await window.ThesisBackgroundUpload.scanNamedPhotos(!!requestAll);
       report.access = scan.access;
@@ -2976,7 +3033,7 @@ function recoverGalleryPhotos(requestAll) {
     } catch (e) { report.errors.push(e.message || String(e)); }
     finally {
       report.scanning = false;
-      if (S.view === 'samples' && !isTyping()) render();
+      if (S.view === 'samples') renderWhenIdle();
     }
   })().finally(() => { galleryRecoveryRunning = null; });
   return galleryRecoveryRunning;
@@ -3051,7 +3108,7 @@ async function sendPhoto(job) {
   delete S.uploading[key];
   if (S.redo[key]) { const next = S.redo[key]; delete S.redo[key]; queueUpload(next); }
   renderCam(); updateSyncChip();
-  if (!S.cam && S.view === 'samples' && !isTyping()) render();
+  if (!S.cam && S.view === 'samples') renderWhenIdle();
 }
 async function sendReceipt(job, key) {
   if ((job.owner || S.user) !== S.user || supplyDeletePending(job.row)) {
@@ -3075,7 +3132,7 @@ async function sendReceipt(job, key) {
   delete S.uploading[key];
   if (S.redo[key]) { const next = S.redo[key]; delete S.redo[key]; queueUpload(next); }
   updateSyncChip();
-  if (S.view === 'supplies' && !isTyping()) render();
+  if (S.view === 'supplies') renderWhenIdle();
 }
 async function flushPhotos() {
   if (!S.user) return;
@@ -3171,6 +3228,7 @@ function receiptKey(row) { return 'rcpt_' + row; }
 async function saveExpenseChanges(row, details) {
   const item = S.data.supplies.find(s => s.row === row);
   if (!item) return false;
+  S.localWriteSeq = (S.localWriteSeq || 0) + 1;
   const changes = Object.entries(details).filter(([field, value]) => item[field] !== value);
   const finish = (queued) => {
     Object.assign(S.data.supplies.find(s => s.row === row) || item, details);
@@ -3290,12 +3348,12 @@ function takeReceipt(row, fromGallery) {
     const key = receiptKey(row);
     const name = 'Receipt_row' + row + '_' + Date.now() + '.jpg';
     store.set(NATIVE_RECEIPT_STORE, JSON.stringify({ row, name, at: Date.now() }));
-    S.preparing[key] = true; render();
+    S.preparing[key] = true; renderWhenIdle();
     (fromGallery ? window.ThesisNativeCamera.choose(name) : window.ThesisNativeCamera.take(name))
       .then(photo => { if (!photo) throw { name: 'AbortError' }; store.del(NATIVE_RECEIPT_STORE); return processReceiptPhoto(row, photo.blob, true, name); })
       .catch(err => {
         store.del(NATIVE_RECEIPT_STORE);
-        delete S.preparing[key]; render();
+        delete S.preparing[key]; renderWhenIdle();
         if (!['OS-PLUG-CAMR-0006', 'OS-PLUG-CAMR-0020'].includes(err.code) && err.name !== 'AbortError') toast(err.message || String(err), 5000, true);
       });
     return;
@@ -3306,7 +3364,7 @@ function takeReceipt(row, fromGallery) {
 }
 async function processReceiptPhoto(row, file, savedInGallery, galleryName) {
   const key = receiptKey(row);
-  S.preparing[key] = true; render();
+  S.preparing[key] = true; renderWhenIdle();
   try {
     const p = await shrinkPhoto(file);
     const expense = S.data && S.data.supplies.find(s => s.row === row);
@@ -3330,8 +3388,8 @@ async function processReceiptPhoto(row, file, savedInGallery, galleryName) {
     }
     await queuePhotoJob(job);
     delete S.preparing[key];
-    render();
-  } catch (err) { delete S.preparing[key]; render(); toast((savedInGallery ? 'Saved in Gallery, but Drive upload could not be queued: ' : '') + (err.message || String(err)), 5000, true); }
+    renderWhenIdle();
+  } catch (err) { delete S.preparing[key]; renderWhenIdle(); toast((savedInGallery ? 'Saved in Gallery, but Drive upload could not be queued: ' : '') + (err.message || String(err)), 5000, true); }
 }
 document.getElementById('rcptInput').addEventListener('change', async e => {
   const file = e.target.files && e.target.files[0], row = S.rcptRow;
@@ -4000,7 +4058,8 @@ const busy = () => Object.keys(S.uploading).length || Object.keys(S.waiting).len
 // Live updates: every 10 s ask the server for its tiny "last change" stamp; fetch everything only when it moved.
 // Changes made by teammates in the app OR typed straight into the Google Sheet show up within seconds.
 function checkLive() {
-  if (DEMO || !S.data || !S.user || S.checking || !navigator.onLine || document.visibilityState !== 'visible' || busy()) return;
+  if (DEMO || !S.data || !S.user || S.checking || !navigator.onLine || document.visibilityState !== 'visible' || busy() ||
+      (S.refreshPending && isTyping())) return;
   S.checking = true;
   call('getVersion').then(v => {
     if (v && v !== S.data.version) return load(true);
@@ -4047,11 +4106,11 @@ PhotoQ.galleryKeys().then(keys => {
       if (!angles.includes(+m[2])) angles.push(+m[2]);
       if (m[1].indexOf('rcpt_') === 0) PhotoQ.galleryFor(m[1]).then(shots => {
         shots.forEach(s => { S.shots[s.id + '_' + s.angle] = s; });
-        if (S.data && S.view === 'supplies') render();
+        if (S.data && S.view === 'supplies') renderWhenIdle();
       }).catch(() => {});
     }
   });
-  if (S.data && S.view === 'samples') render();
+  if (S.data && S.view === 'samples') renderWhenIdle();
 }).catch(() => {});
 setInterval(() => { if (navigator.onLine && (outbox().length || Object.keys(S.queued).length)) flushOutbox().then(flushPhotos); }, 45000);
 setInterval(() => { if (nativeUploadAvailable() && S.user && document.visibilityState === 'visible') flushPhotos(); }, 5000);
@@ -4065,7 +4124,7 @@ function startApp() {
   if (!store.get(TOKEN_STORE) || !acct || !TEAM.some(m => m.tab === acct.user)) { lock(); return; }
   signIn(acct.user);                 // stays signed in on this device, online or offline
   flushPhotos();
-  load().then(() => { resumeCam(); consumeNativeRestored(); return flushPhotos(); });
+  load(!!c).then(() => { resumeCam(); consumeNativeRestored(); return flushPhotos(); });
 }
 if (!isStandalone && !store.get(INSTALL_SKIP)) {
   document.getElementById('install').hidden = false;      // first: offer the app

@@ -12,7 +12,7 @@ assert.ok(saveStart > 0 && saveEnd > saveStart && flushStart > 0);
 test('a rejected create keeps its form and data for retry', async () => {
   let renders = 0, reloads = 0;
   const ctx = vm.createContext({
-    DEMO: false, navigator: { onLine: true },
+    DEMO: false, navigator: { onLine: true }, S: {},
     outbox: () => [], call: async () => { throw new Error('Server rejected the expense'); },
     persist: () => {}, render: () => { renders++; }, isTyping: () => false,
     toast: () => {}, load: () => { reloads++; }, setTimeout: () => {},

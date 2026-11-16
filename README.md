@@ -6,7 +6,7 @@
 
 <p align="center">A fieldwork app for banana leaf samples, team tasks, panel revisions, and thesis expenses. Capture on Android, continue offline, and sync with the team's Google Sheet and Drive.</p>
 
-<p align="center"><code>Android 1.0.20</code> &nbsp; <code>Web / PWA</code> &nbsp; <code>Capacitor</code> &nbsp; <code>Google Sheets + Drive</code></p>
+<p align="center"><code>Android 1.0.21</code> &nbsp; <code>Web / PWA</code> &nbsp; <code>Capacitor</code> &nbsp; <code>Google Sheets + Drive</code></p>
 
 <p align="center">
   <a href="#app-tour"><strong>App tour</strong></a> &nbsp;·&nbsp;
@@ -71,9 +71,11 @@ The Android app stores a private upload copy until Drive confirms each photo. A 
 
 ## Get the Android app
 
-Download the signed [Banana Thesis Tracker 1.0.20 APK](docs/releases/1.0.20/Banana-Thesis-Tracker-Android-1.0.20.apk). Its [SHA-256 checksum](docs/releases/1.0.20/SHA256SUMS.txt) is included. **Install it over an existing team release; do not uninstall first** if photos are waiting to upload. The Chrome-installed web app has separate phone storage from the native Android app.
+Download the signed [Banana Thesis Tracker 1.0.21 APK](Banana-Thesis-Tracker-Android.apk). Its [SHA-256 checksum](Banana-Thesis-Tracker-Android.apk.sha256) is included. **Install it over an existing team release; do not uninstall first** if photos are waiting to upload. The Chrome-installed web app has separate phone storage from the native Android app.
 
 The APK contains the current Android interface and background uploader. Changes to the shared Apps Script service take effect only after the deployment owner publishes a [new web-app version](#update-the-apps-script-copy-and-paste).
+
+For each future Android release, set the new version in `package.json` and `android/app/build.gradle`, save the signed APK and checksum under `docs/releases/<version>/`, then run `npm run release:default`. This verifies the release checksum and copies both the versioned APK and the default APK into the project root.
 
 ## Explore the repository
 
@@ -131,7 +133,7 @@ If the older deployed script says `Cannot call SpreadsheetApp.getUi() from this 
 4. After about a minute, the app is live at `https://<your-username>.github.io/<repo-name>/`.
 
 ### 3. Install on phones
-- **Android native app (named Gallery photos and background Drive upload):** download the [signed 1.0.20 team APK](docs/releases/1.0.20/Banana-Thesis-Tracker-Android-1.0.20.apk). Its launcher icon matches the green leaf used by the website. Installing the website from Chrome does not give it native Gallery access or Android background uploads.
+- **Android native app (named Gallery photos and background Drive upload):** download the [signed 1.0.21 team APK](Banana-Thesis-Tracker-Android.apk). Its launcher icon matches the green leaf used by the website. Installing the website from Chrome does not give it native Gallery access or Android background uploads.
 - **Android web app (Chrome):** open the link, then tap **Install** on the first screen, or on the Home card that shows until the app is installed (or ⋮ → Install app).
 - **iPhone (Safari):** open the link, then Share → **Add to Home Screen**.
 - **Laptop (Chrome / Edge):** use the install icon in the address bar.
@@ -192,7 +194,7 @@ Only the team's six emails (two per member, listed in `accounts` in `ThesisTrack
 Sample collection is view-only on a computer: no camera, no New sample. You can switch the Samples page to **Photos** to see every leaf's photos (you need to be signed in to Google with access to the folder) and print the submission list.
 
 ## Live updates
-Every change in the app is written to the Google Sheet right away (or, offline, as soon as there's signal). Open apps check for changes every 10 seconds, so what a teammate changes in the app, or what anyone types directly in the Google Sheet, shows up on everyone's screen within seconds. The footer shows **● Live · synced (time)**.
+Every change in the app is written to the Google Sheet right away (or, offline, as soon as there's signal). Open apps check for changes every 10 seconds, so what a teammate changes in the app, or what anyone types directly in the Google Sheet, shows up on everyone's screen within seconds. While a form, dropdown, or modal is open, the screen update waits until editing ends so unfinished entries stay in place. The footer shows **● Live · synced (time)**.
 
 ## Working on the farm (no signal)
 - **Before leaving:** open the app once with signal and make sure you're logged in. That saves the app and the latest data on the phone.
