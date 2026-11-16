@@ -40,8 +40,8 @@ function fakeSheet() {
   return sheet;
 }
 
-function contextFor(sheet) {
-  const ss = { getSheetByName: name => name === 'DA RCPC Samples' ? sheet : null, getSpreadsheetTimeZone: () => 'Asia/Manila', getUrl: () => 'https://docs.google.com/spreadsheets/d/test' };
+function contextFor(sheet, taskSheet = null) {
+  const ss = { getSheetByName: name => name === 'DA RCPC Samples' ? sheet : name === 'Fe Anne' ? taskSheet : null, getSpreadsheetTimeZone: () => 'Asia/Manila', getUrl: () => 'https://docs.google.com/spreadsheets/d/test' };
   const ctx = vm.createContext({
     console,
     CFG: { title: 'Tracker', thesisTitle: 'Test', maxRows: 20, classes: ['Healthy'], expenseCategories: ['Sample collection', 'Printing', 'Transport', 'Other'], photoAngles: ['Whole leaf', 'Left side only', 'Top lesions', 'Right side only', 'Back in different light'],
@@ -52,7 +52,8 @@ function contextFor(sheet) {
     PropertiesService: { getScriptProperties: () => ({ getProperty: () => '' }) },
   });
   vm.runInContext(source, ctx);
-  ctx.sheet_ = () => sheet;
+  ctx.sheet_ = name => ss.getSheetByName(name) || sheet;
+  ctx.memberSheet_ = tab => ss.getSheetByName(tab) || sheet;
   ctx.withLock_ = fn => fn();
   ctx.listRule_ = () => ({});
   ctx.photoFilesFor_ = () => [];
@@ -269,4 +270,57 @@ test('task and record writes reject stale rows instead of silently changing empt
   assert.equal(app.updateRecord('sources', 3, 'cordana', 20).cordana, 20);
   assert.equal(app.deleteRecord('sources', 3), true);
   assert.throws(() => app.updateRecord('sources', 3, 'name', 'Stale edit'), /no longer exists/);
+});
+
+test('RCPC task follows the collection date and completing it submits every due team sample', () => {
+  const samples = fakeSheet(), tasks = fakeSheet();
+  const app = contextFor(samples, tasks);
+  const ScriptDate = vm.runInContext('Date', app);
+  const yesterday = new ScriptDate(); yesterday.setHours(12, 0, 0, 0); yesterday.setDate(yesterday.getDate() - 1);
+  const today = new ScriptDate(); today.setHours(12, 0, 0, 0);
+  const iso = d => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '';
+  app.fmtDate_ = iso;
+  vm.runInContext("CURRENT_USER = 'Fe Anne'", app);
+  samples.rows[3][0] = 'FA-001'; samples.rows[3][2] = yesterday;
+  samples.rows[9][0] = 'RJ-001'; samples.rows[9][2] = yesterday;
+  samples.rows[15][0] = 'FA-002'; // reserved label has no collected leaf
+  tasks.rows[3][0] = 'F-11'; tasks.rows[3][1] = 'Submit fresh, labeled samples to DA RCPC Davao'; tasks.rows[3][4] = 'Not Started';
+
+  app.autoLinks_();
+  assert.equal(iso(tasks.rows[3][5]), iso(today), 'yesterday’s collection is due today');
+  vm.runInContext("CURRENT_USER = 'Rho'", app);
+  assert.throws(() => app.updateTask('Fe Anne', 4, 'status', 'Done'), /Fe Anne handles/);
+  assert.equal(samples.rows[3][9], '');
+  vm.runInContext("CURRENT_USER = 'Fe Anne'", app);
+  app.updateTask('Fe Anne', 4, 'status', 'Done');
+  assert.ok(samples.rows[3][9] instanceof ScriptDate);
+  assert.ok(samples.rows[9][9] instanceof ScriptDate);
+  assert.equal(samples.rows[15][9], '', 'an empty reserved label must not be submitted');
+  app.autoLinks_();
+  assert.equal(tasks.rows[3][4], 'Done');
+
+  samples.rows[15][2] = today;
+  app.autoLinks_();
+  const tomorrow = new ScriptDate(today); tomorrow.setDate(tomorrow.getDate() + 1);
+  assert.equal(iso(tasks.rows[3][5]), iso(tomorrow));
+  assert.equal(tasks.rows[3][4], 'Not Started', 'a new collection reopens the next hand-over');
+});
+
+test('batch submission accepts other members’ collected leaves without creating missing samples', () => {
+  const sheet = fakeSheet(), app = contextFor(sheet);
+  const ScriptDate = vm.runInContext('Date', app);
+  const today = new ScriptDate(), yesterday = new ScriptDate(today); yesterday.setDate(yesterday.getDate() - 1);
+  const iso = d => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '';
+  app.fmtDate_ = iso;
+  sheet.rows[3][0] = 'FA-001'; sheet.rows[3][2] = yesterday;
+  sheet.rows[9][0] = 'RJ-001'; sheet.rows[9][2] = yesterday;
+  vm.runInContext("CURRENT_USER = 'Fe Anne'", app);
+  assert.throws(() => app.submitSamples(['FA-001', 'CP-999'], iso(today)), /not found/);
+  assert.equal(sheet.rows[3][9], '', 'invalid batches must not partly save');
+  assert.throws(() => app.submitSamples(['FA-001'], iso(yesterday)), /day after collection/);
+  app.submitSamples(['FA-001', 'RJ-001'], iso(today));
+  assert.ok(sheet.rows[3][9] instanceof ScriptDate);
+  assert.ok(sheet.rows[9][9] instanceof ScriptDate);
+  vm.runInContext("CURRENT_USER = 'Rho'", app);
+  assert.throws(() => app.submitSamples(['FA-001'], iso(today)), /Fe Anne handles/);
 });

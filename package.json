@@ -1,6 +1,6 @@
 {
   "name": "banana-thesis-tracker",
-  "version": "1.0.22",
+  "version": "1.0.23",
   "private": true,
   "scripts": {
     "build:native": "node scripts/build-native.mjs",

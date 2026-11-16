@@ -1,5 +1,5 @@
-# Latest Android release: 1.0.22
+# Latest Android release: 1.0.23
 
-Download the [signed APK](Banana-Thesis-Tracker-Android.apk). Its [SHA-256 checksum](SHA256SUMS.txt) is `bc805c3f631aa79afead916c1ee9a5716519e2dc8dceead3c0dd46b8c2f7a581`.
+Download the [signed APK](Banana-Thesis-Tracker-Android.apk). Its [SHA-256 checksum](SHA256SUMS.txt) is `014c20dbf569384d9b243262f921bb26368fedfcd841e1255c622329fdba2804`.
 
-Install over the existing team release to keep queued uploads and app data. The [versioned archive](../1.0.22/README.md) records this release.
+Install over the existing team release to keep queued uploads and app data. The [versioned archive](../1.0.23/README.md) records this release.

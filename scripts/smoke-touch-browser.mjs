@@ -74,8 +74,48 @@ try {
     await page.locator('form.recform[data-kind="sources"] button[type="submit"]').tap();
     await page.waitForFunction(() => S.data.records.sources.some(source => source.name === 'Touch smoke source'));
 
+    await page.evaluate(() => {
+      const yesterday = addDays(localDay(), -1);
+      S.data.samples = ['FA-900', 'RJ-900', 'CP-900'].map(id => ({ id, row: 0, date: yesterday,
+        site: 'Test farm', by: ownerOf(id), angles: [1, 2, 3, 4, 5], bagged: true,
+        submitted: '', validated: '', notes: '' }));
+      S.sampleFilter = null; S.view = 'samples'; render();
+    });
+    assert.equal(await page.locator('[data-change="smpWho"]').inputValue(), 'All');
+    assert.equal(await page.locator('.smp').count(), 3);
+    assert.equal(await page.getByText('Before the farm').count(), 0);
+    assert.equal(await page.locator('[data-action="smpSent"]').count(), 0);
+    page.on('dialog', dialog => dialog.accept());
+    await page.locator('[data-action="submitRcpcBatch"]').tap();
+    await page.waitForFunction(() => S.data.samples.every(sample => sample.submitted && stageOf(sample) === 'waiting'));
+
+    await page.evaluate(() => {
+      S.data.samples.forEach(sample => { sample.submitted = ''; });
+      const task = rcpcSubmissionTask(); task.status = 'Not Started'; task.completed = '';
+      S.view = 'tasks'; S.member = 'Fe Anne'; S.status = 'All'; render();
+    });
+    const handoverTask = page.locator('#taskList .task').filter({ hasText: 'Submit fresh, labeled samples to DA RCPC Davao' });
+    await handoverTask.locator('select.status').selectOption('Done');
+    await page.waitForFunction(() => S.data.samples.every(sample => sample.submitted && stageOf(sample) === 'waiting'));
+    await page.evaluate(() => {
+      S.data.samples.push({ id: 'FA-901', row: 0, date: localDay(), site: 'Test farm', by: 'Fe Anne',
+        angles: [1], bagged: false, submitted: '', validated: '', notes: '' });
+      scheduleRcpcTask();
+    });
+    await page.waitForFunction(() => {
+      const task = rcpcSubmissionTask();
+      return task.due === addDays(localDay(), 1) && task.status === 'Not Started';
+    });
+    await page.evaluate(() => {
+      const task = rcpcSubmissionTask();
+      task.status = 'Done'; task.due = localDay(); // older deployed server can return stale task state
+      render();
+    });
+    assert.equal(await page.locator('#taskList .task').filter({ hasText: 'Submit fresh, labeled samples to DA RCPC Davao' }).locator('select.status').inputValue(), 'Not Started');
+    assert.equal(await page.locator('#taskList .task').filter({ hasText: 'Submit fresh, labeled samples to DA RCPC Davao' }).locator('[data-field="due"]').inputValue(), await page.evaluate(() => addDays(localDay(), 1)));
+
     assert.deepEqual(errors, []);
-    console.log('Touch browser smoke passed: tapped fields stay open, dropdowns work, expense, task, and More forms save');
+    console.log('Touch browser smoke passed: editors save and Fe Anne submits the team sample batch from Samples or Tasks');
   } finally {
     await browser.close();
   }

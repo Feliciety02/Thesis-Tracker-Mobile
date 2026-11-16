@@ -533,12 +533,6 @@ footer{color:var(--muted);font-size:13px;text-align:center;padding:20px 16px 40p
 .goalrow .fl{width:140px}
 .batch .gbar{height:8px;border-radius:99px;background:rgba(255,255,255,.22);overflow:hidden;margin:8px 0 4px;width:min(260px,60vw)}
 .batch .gbar i{display:block;height:100%;background:#c9e79a;border-radius:99px}
-.checklist{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
-.checklist li{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:14px;cursor:pointer}
-.checklist li.ok{background:var(--ok-soft);border-color:transparent}
-.checklist .bx{width:22px;height:22px;border-radius:6px;border:2px solid var(--line);display:grid;place-items:center;flex:none;font-weight:800;color:#fff}
-.checklist li.ok .bx{background:var(--ok);border-color:var(--ok)}
-.checklist .auto{margin-left:auto;font-size:12px;color:var(--muted);font-weight:700}
 details.card>summary{cursor:pointer;font-weight:700;list-style:none;display:flex;align-items:center;gap:8px}
 details.card>summary::-webkit-details-marker{display:none}
 details.card>summary::after{content:'';margin-left:auto;width:22px;height:22px;flex:none;background:var(--muted);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M480-344 240-584l43-43 197 197 197-197 43 43-240 240Z'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M480-344 240-584l43-43 197 197 197-197 43 43-240 240Z'/%3E%3C/svg%3E") center/contain no-repeat;transition:transform .2s}
@@ -599,7 +593,7 @@ h2{font-weight:700;letter-spacing:-.015em}
 .chip.on:not(:has(.dot))::before{content:'';width:16px;height:16px;flex:none;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M378-246 154-470l43-43 181 181 384-384 43 43-427 427Z'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M378-246 154-470l43-43 181 181 384-384 43 43-427 427Z'/%3E%3C/svg%3E") center/contain no-repeat}
 .chip .dot{margin-right:0}
 /* cards and containers: outlined, softer corners, no heavy shadow */
-.card,.stat,.sc,.lnk,.gal-row,.drow,.rev,.viewbar,.checklist li,.fsteps li{border-radius:16px}
+.card,.stat,.sc,.lnk,.gal-row,.drow,.rev,.viewbar,.fsteps li{border-radius:16px}
 .card{box-shadow:none}
 .stat{border-color:var(--line)}
 .cam-sheet{border-radius:28px 28px 0 0}
@@ -719,6 +713,20 @@ img,svg,video,table{max-width:100%}
 .btn.tonal{background:var(--tonal);color:var(--on-tonal)}
 .btn.text{background:transparent;color:var(--brand);padding:8px 12px;min-height:36px}
 .btn.text:hover{background:var(--hover);box-shadow:none}
+.galrec{margin-top:12px;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--soft);display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px}
+.galrec.ok{background:var(--ok-soft);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
+.galrec.warn{background:var(--amber-soft);border-color:color-mix(in srgb,var(--amber) 45%,transparent)}
+.galrec.bad{background:var(--red-soft);border-color:color-mix(in srgb,var(--red) 40%,transparent)}
+.galrec-msg{display:flex;gap:10px;align-items:flex-start;flex:1 1 220px;min-width:0;font-size:13px;line-height:1.4}
+.galrec-msg b{display:block;font-size:14px;color:var(--ink)}
+.galrec-msg span:not(.galrec-ic):not(.spin-i){color:var(--muted)}
+.galrec-ic{flex:none;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--card);color:var(--brand)}
+.galrec-ic .spin-i{margin:0}
+.galrec.ok .galrec-ic{color:var(--ok)}
+.galrec.warn .galrec-ic{color:var(--amber)}
+.galrec.bad .galrec-ic{color:var(--red)}
+.galrec-acts{display:flex;flex-wrap:wrap;gap:8px;flex:0 1 auto}
+@media (max-width:480px){.galrec-acts{flex:1 1 100%}.galrec-acts .btn{flex:1 1 auto;justify-content:center}}
 .ritem{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;margin-bottom:8px}
 .ritem.sel{grid-template-columns:28px minmax(0,1fr)}
 .ritem.sel>.rbody{grid-column:2}
@@ -984,14 +992,9 @@ body.noscroll{overflow:hidden}
 .sc-act .btn.act{white-space:nowrap;max-width:none;width:auto}
 @media (max-width:720px){
   .ms{grid-template-columns:minmax(0,1fr) 28% 44px;gap:10px;padding:6px 0}
-  .prefarm .checklist{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-  .prefarm .checklist li{padding:8px 10px;font-size:13px;gap:8px;align-items:flex-start;line-height:1.3}
-  .prefarm .checklist li .auto{display:block;font-size:12px}
   .row.filters.taskfilters{flex-direction:row;flex-wrap:nowrap;gap:8px;align-items:center}
   .row.filters.taskfilters>.chips{flex:1 1 auto;min-width:0;width:auto;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
   .row.filters.taskfilters>select.ownsel{flex:none;width:auto!important;max-width:118px;margin:0}
-  .prefarm .checklist li{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:8px}
-  .prefarm .checklist li .auto{grid-column:2;margin:2px 0 0;font-weight:600}
 }
 </style>
 </head>
@@ -1079,7 +1082,6 @@ const IS_PHONE = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(UA) || (/Ma
 document.documentElement.classList.add(IS_PHONE ? 'is-phone' : 'is-desktop');
 const CAM_STORE = 'bt:cam';
 const NATIVE_RECEIPT_STORE = 'bt:nativeReceipt';
-const PREFARM_CLOSED = 'bt:prefarmClosed';   // the day the checklist was collapsed (it opens again the next day)
 const TOKEN_STORE = 'bt:token', ACCT_STORE = 'bt:acct', DATA_STORE = 'bt:data', INSTALL_SKIP = 'bt:installSkip';
 const TEAM = [
   { tab: 'Fe Anne', name: 'Fe Anne Malasarte', role: 'Team Leader', color: '#6a1b9a', prefix: 'FA' },
@@ -1380,10 +1382,21 @@ function dueText(t) {
 }
 const byDue = (a, b) => (a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0;
 function member(tab) { return S.data.members.find(m => m.tab === tab); }
-function allTasks() { return S.data.members.flatMap(m => m.tasks.map(t => Object.assign({}, t, { tab: m.tab, color: m.color }))); }
+function allTasks() {
+  const nextDue = rcpcNextDue();
+  return S.data.members.flatMap(m => m.tasks.map(t => {
+    const shown = Object.assign({}, t, { tab: m.tab, color: m.color });
+    if (m.tab === 'Fe Anne' && (t.id === 'F-11' || /^Submit fresh, labeled samples to DA RCPC/i.test(t.task)) && nextDue) {
+      shown.due = nextDue;
+      if (shown.status === 'Done') { shown.status = 'Not Started'; shown.completed = ''; shown.doneBy = ''; }
+    }
+    return shown;
+  }));
+}
 function ownerColor(owner) { const m = S.data.members.find(x => owner.indexOf(x.tab) > -1); return m ? m.color : 'var(--muted)'; }
 function stats(m) {
-  const t = m.tasks, done = t.filter(x => x.status === 'Done').length;
+  const t = m.tab === 'Fe Anne' ? allTasks().filter(x => x.tab === 'Fe Anne') : m.tasks;
+  const done = t.filter(x => x.status === 'Done').length;
   const open = t.filter(x => x.status !== 'Done');
   const next = open.filter(x => x.due).sort(byDue)[0];
   return {
@@ -2184,7 +2197,7 @@ function newSample() {
   const lastSite = (samplesOf(S.user).filter(s => s.site).sort((a, b) => labelNum(b.id) - labelNum(a.id))[0] || {}).site || '';
   S.data.samples.push({ row: 0, id, disease: '', date: '', site: lastSite, by: S.user, photos: '',
     cotton: false, bagged: false, submitted: '', validated: '', notes: '', folder: '', angles: [] });
-  S.sampleFilter = S.user;
+  if (S.user !== 'Fe Anne') S.sampleFilter = S.user;
   persist();
   openCam(id);
 }
@@ -2195,44 +2208,19 @@ function leafProgress() {
   const done = d.samples.filter(x => (x.angles || []).length >= MIN_ANGLES).length;
   return { done, goal, p: goal ? Math.min(100, pct(done, goal)) : 0 };
 }
-const PREFARM = [
-  ['offline', 'App works without signal', 'auto'], ['supplies', 'Sample supplies bought', 'auto'],
-  ['charged', 'Phone charged (and a power bank)'], ['tape', 'Masking tape + marker'], ['cotton', 'RCPC-approved packaging ready'],
-  ['shears', 'Clean shears or scissors'], ['cooler', 'Cooler or shaded box for the leaves'],
-];
-function prefarmState() {
-  let st = {}; try { st = JSON.parse(store.get('bt:prefarm') || '{}'); } catch (e) {}
-  if (st.day !== localDay()) st = { day: localDay(), done: {} };       // fresh list each day
-  const sup = S.data.supplies.filter(x => x.category === 'Sample collection' && !/^cotton$/i.test(x.item));
-  const auto = {
-    offline: nativeCameraAvailable() || !!(navigator.serviceWorker && navigator.serviceWorker.controller),
-    supplies: sup.length > 0 && sup.every(x => x.bought),
-  };
-  return { st, auto, supNote: sup.filter(x => x.bought).length + ' of ' + sup.length + ' bought' };
-}
-function prefarmCard() {
-  const { st, auto, supNote } = prefarmState();
-  const items = PREFARM.map(([k, label, kind]) => {
-    const ok = kind ? auto[k] : !!st.done[k];
-    return '<li class="' + (ok ? 'ok' : '') + '" data-action="prefarm" data-v="' + k + '" role="button" tabindex="0"><span class="bx">' + (ok ? '' + ic('check') + '' : '') + '</span>' + esc(label) +
-      (kind ? '<span class="auto">' + (k === 'supplies' ? supNote : ok ? 'ready' : 'open once with signal') + '</span>' : '') + '</li>';
-  });
-  const n = PREFARM.filter(([k, , kind]) => kind ? auto[k] : st.done[k]).length;
-  const open = S.prefarmOpen != null ? S.prefarmOpen : n < PREFARM.length && store.get(PREFARM_CLOSED) !== localDay();
-  return '<details class="card prefarm" style="margin-bottom:14px;padding:14px 16px"' + (open ? ' open' : '') + ' data-action="prefarmToggle"><summary>' + ic('backpack') + ' Before the farm · ' + n + ' of ' + PREFARM.length + ' ready</summary>' +
-    '<ul class="checklist">' + items.join('') + '</ul></details>';
-}
 function handoverCard() {
-  const d = S.data, st = settings();
+  const d = S.data;
   const due = dueLeaves().length;
   const sent = d.samples.filter(x => freshness(x).st === 'ok').length;
   const invalid = d.samples.filter(x => ['late', 'expired'].includes(freshness(x).st)).length;
+  const batch = rcpcSubmissionBatch(localDay()), nextDue = rcpcNextDue();
   return '<div class="card" style="margin-bottom:14px;padding:14px 16px"><h3 style="margin:0">DA RCPC hand-over</h3>' +
     '<p class="small muted" style="margin:4px 0 0">Every leaf must reach DA RCPC the day after it\'s collected.</p>' +
     '<div class="hand" style="grid-template-columns:repeat(' + (invalid ? 3 : 2) + ',1fr)"><div><b>' + due + '</b><span>to send</span></div><div><b>' + sent + '</b><span>sent on time</span></div>' +
       (invalid ? '<div style="background:var(--red-soft)"><b style="color:var(--red)">' + invalid + '</b><span>invalid (late)</span></div>' : '') + '</div>' +
-    '<button class="btn" data-action="openSheet">' + ic('assignment') + ' Submission list</button>' +
-    '<div class="goalrow"><label class="fl">Leaves goal<input type="number" min="0" inputmode="numeric" placeholder="e.g. 30" value="' + esc(st.leafGoal || '') + '" data-change="setting" data-field="leafGoal"></label></div></div>';
+    (S.user === 'Fe Anne' ? batch.length ? '<button class="btn" data-action="submitRcpcBatch">' + ic('check') + ' Mark all ' + batch.length + ' due sample' + (batch.length === 1 ? '' : 's') + ' submitted</button>' :
+      '<p class="small muted">' + (nextDue && nextDue >= localDay() ? 'Next hand-over: ' + esc(fmt(nextDue)) : nextDue ? 'Review overdue samples before the next hand-over.' : 'No collected samples waiting for hand-over.') + '</p>' : '') +
+    '<button class="btn ghost" data-action="openSheet">' + ic('assignment') + ' Submission list</button></div>';
 }
 /* Where a leaf is in its journey. One stage, one next step. */
 const STAGES = { photos: 'Finish photos', bag: 'Bag & label', send: 'Send to DA RCPC', waiting: 'Waiting for RCPC', done: 'RCPC result in', invalid: 'Invalid (missed next-day rule)' };
@@ -2245,6 +2233,39 @@ function stageOf(x) {
   if (!x.bagged) return 'bag';
   return 'send';
 }
+function rcpcSubmissionTask() {
+  const lead = member('Fe Anne');
+  return lead && lead.tasks.find(t => t.id === 'F-11' || /^Submit fresh, labeled samples to DA RCPC/i.test(t.task));
+}
+function rcpcSubmissionBatch(date) {
+  return S.data.samples.filter(x => x.date && !x.submitted && x.date < date && date <= addDays(x.date, 1));
+}
+function rcpcNextDue() {
+  const due = S.data.samples.filter(x => x.date && !x.submitted).map(x => addDays(x.date, 1)).sort();
+  return due[0] || '';
+}
+function scheduleRcpcTask() {
+  const t = rcpcSubmissionTask(), due = rcpcNextDue();
+  if (!t || !due) return;
+  const reopen = t.status === 'Done';
+  const updateStatus = () => {
+    if (reopen) save('updateTask', ['Fe Anne', t.row, 'status', 'Not Started'], () => { t.status = 'Not Started'; t.completed = ''; t.doneBy = ''; });
+  };
+  if (t.due !== due) save('updateTask', ['Fe Anne', t.row, 'due', due], () => { t.due = due; }).then(result => { if (result !== SAVE_FAILED) updateStatus(); });
+  else updateStatus();
+}
+function submitRcpcBatch(ids, date, finishTask) {
+  if (S.user !== 'Fe Anne') return;
+  ids = [...new Set(ids)].filter(id => { const x = sampleById(id); return x && x.date && !x.submitted && x.date < date && date <= addDays(x.date, 1); });
+  if (!ids.length) { toast('No collected samples are due for submission today.', 3500, true); return; }
+  if (!confirm('Mark all ' + ids.length + ' collected sample' + (ids.length === 1 ? '' : 's') + ' as submitted to DA RCPC on ' + fmt(date) + '?\n\n' + ids.join(', '))) return;
+  const task = finishTask ? rcpcSubmissionTask() : null;
+  save('submitSamples', [ids, date], () => { ids.forEach(id => { const x = sampleById(id); if (x) x.submitted = date; }); }).then(result => {
+    if (result === SAVE_FAILED) return;
+    if (task) save('updateTask', ['Fe Anne', task.row, 'status', 'Done'], () => { task.status = 'Done'; task.completed = date; task.doneBy = S.user; }).then(() => scheduleRcpcTask());
+    else scheduleRcpcTask();
+  });
+}
 const TODO_STAGES = ['send', 'bag', 'photos'];
 function stepper(x) {
   const st = stageOf(x), n = takenSet(x).size;
@@ -2255,7 +2276,7 @@ function stepper(x) {
 }
 function vSamples() {
   const d = S.data, me = S.user;
-  const who = S.sampleFilter || me;
+  const who = S.sampleFilter || (me === 'Fe Anne' ? 'All' : me);
   const pool = (who === 'All' ? d.samples.slice() : samplesOf(who));
   const by = st => pool.filter(x => stageOf(x) === st);
   const todo = pool.filter(x => TODO_STAGES.indexOf(stageOf(x)) > -1);
@@ -2270,21 +2291,40 @@ function vSamples() {
     ? 'The live tracker server accepts only ' + S.serverPhotoLimit + ' photos per leaf. Update and redeploy the Apps Script for all five photos.'
     : errors.length ? 'Drive upload error: ' + errors[0] : '';
   const recovery = S.galleryRecovery;
-  const recoveryInfo = nativeUploadAvailable() && window.ThesisBackgroundUpload.scanNamedPhotos
-    ? '<div class="small" style="margin-top:8px">' +
-      (recovery && recovery.scanning ? 'Scanning Gallery for named sample photos…' :
-        recovery && recovery.access === 'denied' ? 'Allow Gallery access to recover photos after reinstall.' :
-        recovery && recovery.access === 'partial' ? 'Only selected Gallery photos are visible. Allow all photos to recover the rest.' :
-        recovery && recovery.recovered ? recovery.recovered + ' missing photo' + (recovery.recovered === 1 ? '' : 's') + ' restored from Gallery to the upload queue.' :
-        recovery && recovery.access === 'full' ? 'Gallery checked for missing sample photos.' : 'Gallery recovery is available after sign-in.') +
-      (recovery && recovery.unmatched ? ' ' + recovery.unmatched + ' named photo' + (recovery.unmatched === 1 ? '' : 's') + ' did not match a current sample and stayed in Gallery.' : '') +
-      (recovery && recovery.errors && recovery.errors.length ? ' Recovery error: ' + esc(recovery.errors[0]) : '') +
-      (recovery && recovery.unmatchedPhotos && recovery.unmatchedPhotos.length ? ' <button class="linkbtn" data-action="restoreGallerySamples">Restore missing sample records</button>' : '') +
-      ' <button class="linkbtn" data-action="recoverGallery"' + (recovery && recovery.scanning ? ' disabled' : '') + '>' +
-      (recovery && recovery.access === 'partial' ? 'Allow all &amp; rescan' : 'Scan Gallery again') + '</button></div>' : '';
+  let recoveryInfo = '';
+  if (nativeUploadAvailable() && window.ThesisBackgroundUpload.scanNamedPhotos) {
+    const r = recovery || {}, scanning = !!r.scanning;
+    const hasErr = r.errors && r.errors.length;
+    const needsAccess = r.access === 'denied' || r.access === 'partial';
+    // tone + icon tell the state at a glance; text explains it
+    const tone = scanning ? 'busy' : hasErr ? 'bad' : needsAccess ? 'warn' : r.recovered ? 'ok' : r.access === 'full' ? 'ok' : '';
+    const icon = scanning ? SPIN : ic(hasErr ? 'error' : needsAccess ? 'warning' : r.recovered || r.access === 'full' ? 'check_circle' : 'photo_library');
+    const title = scanning ? 'Scanning Gallery…' :
+      r.access === 'denied' ? 'Gallery access needed' :
+      r.access === 'partial' ? 'Limited Gallery access' :
+      r.recovered ? r.recovered + ' photo' + (r.recovered === 1 ? '' : 's') + ' recovered' :
+      r.access === 'full' ? 'Gallery checked' : 'Gallery recovery';
+    const msg = (scanning ? 'Looking for named sample photos on this phone.' :
+        r.access === 'denied' ? 'Allow Gallery access to recover photos after reinstall.' :
+        r.access === 'partial' ? 'Only selected photos are visible. Allow all photos to recover the rest.' :
+        r.recovered ? 'Restored from Gallery to the upload queue.' :
+        r.access === 'full' ? 'No missing sample photos found.' : 'Available after sign-in.') +
+      (r.unmatched ? ' ' + r.unmatched + ' named photo' + (r.unmatched === 1 ? '' : 's') + ' did not match a current sample and stayed in Gallery.' : '') +
+      (hasErr ? ' Error: ' + esc(r.errors[0]) : '');
+    const scanLabel = needsAccess ? ic('photo_library') + ' ' + (r.access === 'partial' ? 'Allow all &amp; rescan' : 'Allow access') : ic('sync') + ' Scan Gallery again';
+    const restore = !scanning && r.unmatchedPhotos && r.unmatchedPhotos.length
+      ? '<button class="btn" data-action="restoreGallerySamples">' + ic('add') + ' Restore ' + r.unmatchedPhotos.length + ' sample record' + (r.unmatchedPhotos.length === 1 ? '' : 's') + '</button>' : '';
+    // the main action is filled when the user must act; otherwise a softer tonal button
+    const scanCls = needsAccess && !restore ? 'btn' : 'btn tonal';
+    recoveryInfo = '<div class="galrec ' + tone + '" role="status" aria-live="polite">' +
+      '<div class="galrec-msg"><span class="galrec-ic">' + icon + '</span><div><b>' + title + '</b><span>' + msg + '</span></div></div>' +
+      '<div class="galrec-acts">' + restore +
+        '<button class="' + scanCls + '" data-action="recoverGallery"' + busyBtn(scanning, scanLabel, 'Scanning…') + '</button>' +
+      '</div></div>';
+  }
   const today = pool.filter(x => x.date === localDay()).length;
 
-  const whoSel = '<select class="ownsel" data-change="smpWho" aria-label="Whose samples">' + [me, ...TEAM.map(t => t.tab).filter(t => t !== me), 'All'].map(t =>
+  const whoSel = '<select class="ownsel" data-change="smpWho" aria-label="Whose samples">' + (me === 'Fe Anne' ? ['All', me, ...TEAM.map(t => t.tab).filter(t => t !== me)] : [me, ...TEAM.map(t => t.tab).filter(t => t !== me), 'All']).map(t =>
     '<option value="' + esc(t) + '"' + (who === t ? ' selected' : '') + '>' + esc(t === me ? 'Mine' : t === 'All' ? 'Everyone' : t) + '</option>').join('') + '</select>';
   const head = '<div class="ptitle"><h2>Samples</h2>' + whoSel + '</div>' +
     '<div class="card smpsum"><div class="ss">' +
@@ -2297,8 +2337,6 @@ function vSamples() {
       recoveryInfo +
       (!IS_PHONE ? '<div class="small muted" style="margin-top:8px">' + ic('visibility') + ' Take photos with the app on your phone. Everything else can be updated here.</div>' : '') + '</div>';
 
-  // the farm checklist goes on top only until you start collecting today
-  const prefarmTop = IS_PHONE && !samplesOf(me).some(x => x.date === localDay()) && (!S.smpStage || S.smpStage === 'todo');
   const seg = '<div class="segtabs" role="tablist">' + tabs.map(([k, l, c]) => '<button role="tab" aria-selected="' + (stage === k) + '" class="' + (stage === k ? 'on' : '') + (k === 'invalid' ? ' bad' : '') + '" data-action="smpStage" data-v="' + k + '">' + l + ' <span>' + c + '</span></button>').join('') + '</div>';
   const desk = !IS_PHONE ? '<div class="row" style="margin:0 0 10px;gap:8px"><div class="chips"><button class="chip ' + (!S.gallery ? 'on' : '') + '" data-action="gallery" data-v="0">Cards</button><button class="chip ' + (S.gallery ? 'on' : '') + '" data-action="gallery" data-v="1">' + ic('photo_library') + ' Photos</button></div><span class="sp"></span>' +
     (d.photoFolderUrl ? '<a class="btn ghost" href="' + esc(d.photoFolderUrl) + '" target="_blank" rel="noopener">' + ic('folder') + ' Drive ' + ic('open_in_new') + '</a>' : '') + '</div>' : '';
@@ -2312,7 +2350,6 @@ function vSamples() {
       const xs = by(st); if (!xs.length) return '';
       const urgent = st === 'send' && xs.some(x => freshness(x).st === 'today');
       return '<div class="sgroup' + (urgent ? ' bad' : '') + '"><b>' + STAGES[st] + '</b><span class="cnt">' + xs.length + '</span>' +
-        (st === 'send' ? '<span class="sp"></span><button class="btn text" data-action="openSheet">' + ic('assignment') + ' Submission list</button>' : '') +
         (st === 'send' ? '<p>Bring each leaf the day after you collect it, or RCPC can\'t use it.</p>' : st === 'bag' ? '<p>Follow RCPC-approved packaging. Use wet cotton only if RCPC specifically requires it; label each sample.</p>' : '') +
         '</div>' + grid(xs);
     }).join('') || '<div class="empty">' + ic('check_circle') + ' Nothing to do. ' + (IS_PHONE ? 'At the farm, tap <b>New sample</b> for each leaf.' : 'New leaves appear here when the team adds them.') + '</div>';
@@ -2322,8 +2359,7 @@ function vSamples() {
       (stage === 'invalid' && xs.length ? '<p class="small muted" style="margin:0 0 8px">These reached RCPC late or not at all, so they can\'t be used in the dataset.</p>' : '') +
       (xs.length ? grid(xs) : '<div class="empty">Nothing here yet.</div>');
   }
-  return head + (prefarmTop ? prefarmCard() : '') + seg + desk + list +
-    '<div class="section">' + (prefarmTop ? '' : IS_PHONE ? prefarmCard() : '') + paperCard() + '</div>';
+  return head + handoverCard() + seg + desk + list + '<div class="section">' + paperCard() + '</div>';
 }
 
 function paperCard() {
@@ -2355,7 +2391,7 @@ function sampleCard(x) {
     photos: IS_PHONE ? '<button class="btn act" data-action="cam" ' + at + '>' + ic('photo_camera') + ' Take photos · ' + Math.min(n, MAX_ANGLES) + ' of ' + MAX_ANGLES + '</button>'
                      : '<span class="small muted">' + n + ' of ' + MAX_ANGLES + ' photos · finish on the phone</span>',
     bag: '<button class="btn act" data-action="smpBag" ' + at + '>' + ic('check') + ' Bagged & labeled</button>',
-    send: '<button class="btn act" data-action="smpSent" ' + at + '>' + ic('check') + ' Sent to RCPC today</button>',
+    send: '<span class="tagp ok">Ready for team hand-over</span>',
     waiting: '<label class="act-sel">RCPC result' + sel(x.validated, 'validated', 'Choose…') + '</label>',
     done: '<span class="tagp ok">' + ic('check_circle') + ' RCPC: ' + esc(x.validated) + '</span>',
     invalid: '<span class="small muted">' + (f.st === 'late' ? 'Sent ' + esc(fmt(x.submitted).replace(/^\w+, /, '')) + ', after the next-day deadline' : 'Not sent by ' + esc(fmt(f.due).replace(/^\w+, /, ''))) + '</span>',
@@ -2395,7 +2431,7 @@ function renderOv() {
   if (!S.ov || !S.data) return;
   document.getElementById('ovBody').innerHTML = sheetHtml();
 }
-function sheetCandidates() { return S.data.samples.filter(x => !x.submitted && freshness(x).st !== 'expired').sort((a, b) => a.id < b.id ? -1 : 1); }
+function sheetCandidates() { return S.data.samples.filter(x => x.date && !x.submitted && freshness(x).st !== 'expired').sort((a, b) => a.id < b.id ? -1 : 1); }
 function sheetHtml() {
   const o = S.ov, list = sheetCandidates(), sel = list.filter(x => o.sel[x.id]);
   const lateOn = x => x.date && o.date > addDays(x.date, 1);
@@ -2420,7 +2456,7 @@ function sheetHtml() {
     '</div>' +
     '<div class="row noprint" style="margin-top:16px;gap:8px">' +
       '<button class="btn ghost" data-action="sheetPrint"' + (sel.length ? '' : ' disabled') + '>' + ic('print') + ' Print / save PDF</button>' +
-      (IS_PHONE ? '<button class="btn" data-action="sheetSubmit"' + (sel.length ? '' : ' disabled') + '>' + ic('check') + ' Mark ' + sel.length + ' as submitted</button>' : '') + '</div>';
+      (S.user === 'Fe Anne' ? '<button class="btn" data-action="sheetSubmit"' + (sel.length ? '' : ' disabled') + '>' + ic('check') + ' Mark ' + sel.length + ' as submitted</button>' : '') + '</div>';
 }
 /* ---------- desktop photo gallery ---------- */
 function loadPhotoIndex() {
@@ -3180,6 +3216,7 @@ async function acceptShot(job, thumb, blob) {
       writes.push({ fn: 'updateSample', args: [job.id, 'date', sample.date], user: S.user, at: Date.now() });
       setOutbox(writes);
     }
+    scheduleRcpcTask();
   }
   if (job.firstCapture) {
     captureGps(job.id);
@@ -3660,11 +3697,7 @@ document.addEventListener('click', e => {
   if (a === 'recoverGallery') { recoverGalleryPhotos(true); return; }
   if (a === 'restoreGallerySamples') { restoreGallerySamples(); return; }
   if (a === 'smpBag') { const x = sampleById(el.dataset.id); if (x) markPacked(x.id); return; }
-  if (a === 'smpSent') {
-    const x = sampleById(el.dataset.id); if (!x) return;
-    save('updateSample', [x.id, 'submitted', localDay()], () => { x.submitted = localDay(); });
-    return;
-  }
+  if (a === 'submitRcpcBatch') { submitRcpcBatch(rcpcSubmissionBatch(localDay()).map(x => x.id), localDay(), true); return; }
   if (a === 'actMore') { S.actAll = !S.actAll; render(); return; }
   if (a === 'gotoView') { S.view = v; S.member = 'All'; S.status = 'Open'; render(); window.scrollTo(0, 0); return; }
   if (a === 'goto') { S.view = 'tasks'; S.member = v; S.status = 'Open'; render(); window.scrollTo(0, 0); }
@@ -3743,13 +3776,8 @@ document.addEventListener('click', e => {
     const t = compareTSV();
     (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast('Copied. Paste it into the doc', 2000), () => toast('Couldn\'t copy here', 2500, true));
   }
-  else if (a === 'prefarm') {
-    const { st } = prefarmState(), kind = (PREFARM.find(x => x[0] === v) || [])[2];
-    if (kind === 'auto') { toast(v === 'supplies' ? 'Mark them Paid on the Expenses page' : 'Open the app once with signal', 2200); return; }
-    st.done[v] = !st.done[v]; store.set('bt:prefarm', JSON.stringify(st)); render();
-  }
   else if (a === 'openSheet') {
-    const sel = {}; sheetCandidates().forEach(x => { if ((x.angles || []).length >= MIN_ANGLES) sel[x.id] = true; });
+    const sel = {}; rcpcSubmissionBatch(localDay()).forEach(x => { sel[x.id] = true; });
     openOv({ type: 'sheet', sel, date: localDay() });
   }
   else if (a === 'gallerySave') { saveShots(el.dataset.id); }
@@ -3763,11 +3791,14 @@ document.addEventListener('click', e => {
   }
   else if (a === 'sheetPrint') { window.print(); }
   else if (a === 'sheetSubmit') {
+    if (S.user !== 'Fe Anne') return;
     const ids = Object.keys(S.ov.sel), date = S.ov.date || localDay();
+    const early = ids.filter(id => { const x = sampleById(id); return x && x.date >= date; });
+    if (early.length) { toast('Submit these samples the day after collection: ' + early.join(', '), 5000, true); return; }
     const late = ids.filter(id => { const x = sampleById(id); return x && x.date && date > addDays(x.date, 1); });
     if (!ids.length || !confirm('Mark ' + ids.length + ' sample(s) as submitted to DA RCPC on ' + fmt(date) + '?' +
       (late.length ? '\n\nWarning: ' + late.join(', ') + ' would be LATE (more than a day after collection) and invalid.' : ''))) return;
-    save('submitSamples', [ids, date], () => { ids.forEach(id => { const x = sampleById(id); if (x) x.submitted = date; }); });
+    save('submitSamples', [ids, date], () => { ids.forEach(id => { const x = sampleById(id); if (x) x.submitted = date; }); }).then(result => { if (result !== SAVE_FAILED) scheduleRcpcTask(); });
     closeOv();
   }
   else if (a === 'ovClose') { closeOv(); }
@@ -3912,6 +3943,12 @@ document.addEventListener('change', e => {
   let val = el.type === 'checkbox' ? el.checked : el.type === 'number' ? (el.value === '' ? '' : Number(el.value)) : el.value;
   if (k === 'task') {
     const tab = el.dataset.tab;
+    const task = member(tab).tasks.find(x => x.row === row);
+    if (field === 'status' && val === 'Done' && tab === 'Fe Anne' && task && (task.id === 'F-11' || /^Submit fresh, labeled samples to DA RCPC/i.test(task.task))) {
+      submitRcpcBatch(rcpcSubmissionBatch(localDay()).map(x => x.id), localDay(), true);
+      render();
+      return;
+    }
     save('updateTask', [tab, row, field, val], () => {
       const t = member(tab).tasks.find(x => x.row === row);
       t[field] = val;
@@ -3955,7 +3992,6 @@ document.addEventListener('toggle', e => {
   if (!e.target.matches) return;
   if (e.target.isConnected && e.target.matches('details[data-agenda-key]')) S.open[e.target.dataset.agendaKey] = e.target.open;
   if (e.target.matches('details[data-action=paperToggle]')) S.paperOpen = e.target.open;
-  if (e.target.matches('details[data-action=prefarmToggle]')) { S.prefarmOpen = e.target.open; if (e.target.open) store.del(PREFARM_CLOSED); else store.set(PREFARM_CLOSED, localDay()); }
 }, true);
 document.addEventListener('keydown', e => {
   // Android's keyboard action key sends Enter. Move through add forms instead

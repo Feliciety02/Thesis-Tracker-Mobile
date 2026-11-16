@@ -338,9 +338,22 @@ function updateTask(tab, row, field, value) {
     const sh = memberSheet_(tab);
     row = Number(row);
     if (row < 4) throw new Error('Bad row');
-    if (!sh.getRange(row, 2).getValue()) throw new Error('That task no longer exists');
+    const taskName = String(sh.getRange(row, 2).getValue() || '');
+    if (!taskName) throw new Error('That task no longer exists');
     const col = { task: 2, category: 3, priority: 4, status: 5, due: 6, notes: 8, doneBy: 10 }[field];
     if (!col) throw new Error('Field not editable: ' + field);
+    if (field === 'status' && value === 'Done' && tab === 'Fe Anne' && (sh.getRange(row, 1).getValue() === 'F-11' || /^Submit fresh, labeled samples to DA RCPC/i.test(taskName))) {
+      if (CURRENT_USER && CURRENT_USER !== 'Fe Anne') throw new Error('Fe Anne handles the RCPC hand-over for the team.');
+      const samples = sheet_('DA RCPC Samples'), tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+      const today = fmtDate_(new Date(), tz), stamp = parseDate_(today);
+      const rows = samples.getLastRow() >= 4 ? samples.getRange(4, 1, samples.getLastRow() - 3, 10).getValues() : [];
+      rows.forEach((r, i) => {
+        if (!SAMPLE_ID_RE.test(String(r[0] || '')) || !(r[2] instanceof Date) || r[9]) return;
+        const collected = fmtDate_(r[2], tz);
+        const due = new Date(r[2]); due.setDate(due.getDate() + 1);
+        if (collected < today && today <= fmtDate_(due, tz)) samples.getRange(i + 4, 10).setValue(stamp);
+      });
+    }
     sh.getRange(row, col).setValue(field === 'due' ? parseDate_(value) : value);
     if (field === 'status') {
       const stamp = sh.getRange(row, 9), by = sh.getRange(row, 10);
@@ -541,6 +554,7 @@ function updateSample(id, field, value) {
   if (!SAMPLE_ID_RE.test(id)) throw new Error('Bad sample label: ' + id);
   const col = { disease: 2, date: 3, site: 4, cotton: 8, bagged: 9, submitted: 10, validated: 11, notes: 13, gps: 16 }[field];
   if (!col) throw new Error('Field not editable: ' + field);
+  if (field === 'submitted' && CURRENT_USER && CURRENT_USER !== 'Fe Anne') throw new Error('Fe Anne handles the RCPC hand-over for the team.');
   if (field === 'date' || field === 'submitted') value = parseDate_(value);
   createSample(id);                       // in case it was started offline on another path
   return withLock_(() => {
@@ -1334,10 +1348,18 @@ function setSetting(key, value) {
 function submitSamples(ids, iso) {
   const d = parseDate_(iso);
   if (!d) throw new Error('Pick a date');
-  (ids || []).forEach(id => createSample(id));
+  if (CURRENT_USER && CURRENT_USER !== 'Fe Anne') throw new Error('Fe Anne handles the RCPC hand-over for the team.');
+  if (!Array.isArray(ids) || !ids.length) throw new Error('Select at least one collected sample');
   return withLock_(() => {
-    const sh = sheet_('DA RCPC Samples');
-    (ids || []).forEach(id => { const r = sampleRow_(sh, String(id).toUpperCase()); if (r > 0) sh.getRange(r, 10).setValue(d); });
+    const sh = sheet_('DA RCPC Samples'), tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+    const rows = [...new Set(ids.map(id => String(id).toUpperCase()))].map(id => {
+      const row = sampleRow_(sh, id);
+      if (!SAMPLE_ID_RE.test(id) || row < 4 || !(sh.getRange(row, 3).getValue() instanceof Date))
+        throw new Error('Collected sample not found: ' + id);
+      if (iso <= fmtDate_(sh.getRange(row, 3).getValue(), tz)) throw new Error('Submit ' + id + ' the day after collection, not on the collection day.');
+      return row;
+    });
+    rows.forEach(row => { if (!sh.getRange(row, 10).getValue()) sh.getRange(row, 10).setValue(d); });
     return true;
   });
 }
@@ -1377,7 +1399,7 @@ function submittedOnTime_(collected, submitted) {
 
 /* ============================================================
  *  Linked tasks: after every change, related items update themselves.
- *  Rules only move things FORWARD (never un-tick something a person set).
+ *  Most rules move forward. A newly collected batch reopens the RCPC hand-over task.
  * ============================================================ */
 function autoLinks_() {
   const ss = SpreadsheetApp.getActive(), done = [];
@@ -1395,7 +1417,7 @@ function autoLinks_() {
   const revSh = ss.getSheetByName('Panel Revisions');
   const revs = revSh && revSh.getLastRow() >= 4 ? revSh.getRange(4, 1, revSh.getLastRow() - 3, 7).getValues().filter(r => r[2]).map(r => ({ owner: String(r[3]), status: String(r[4] || 'NC'), page: String(r[5] || ''), signed: r[6] === true })) : [];
   const smpSh = ss.getSheetByName('DA RCPC Samples');
-  const samples = smpSh && smpSh.getLastRow() >= 4 ? smpSh.getRange(4, 1, smpSh.getLastRow() - 3, 10).getValues().filter(r => SAMPLE_ID_RE.test(String(r[0] || ''))).map(r => ({ id: String(r[0]), submitted: !!r[9] })) : [];
+  const samples = smpSh && smpSh.getLastRow() >= 4 ? smpSh.getRange(4, 1, smpSh.getLastRow() - 3, 10).getValues().filter(r => SAMPLE_ID_RE.test(String(r[0] || ''))).map(r => ({ id: String(r[0]), collected: r[2], submitted: !!r[9] })) : [];
   const expSh = ss.getSheetByName('Expenses');
   let supplies = [];
   if (expSh) { const tot = suppliesTotalRow_(expSh); if (tot > 3) supplies = expSh.getRange(3, 1, tot - 3, 9).getValues().filter(r => r[0] && r[8] === 'Sample collection').map(r => r[6] === true); }
@@ -1430,8 +1452,21 @@ function autoLinks_() {
   // 2) Sample supplies paid → "Buy supplies"
   if (supplies.length && supplies.every(Boolean)) tasksLike(/^Buy supplies/i).forEach(t => setTask(t, 'Done', 'all sample supplies paid'));
   // 3) Samples → each member's "Collect + photograph" task, and "Submit fresh samples"
-  CFG.members.forEach(m => { if (samples.some(x => x.id.indexOf(m.prefix + '-') === 0)) tasksLike(/^Collect \+ photograph your samples/i, m.tab).forEach(t => setTask(t, 'In Progress', 'first sample collected')); });
-  if (samples.some(x => x.submitted)) tasksLike(/^Submit fresh, labeled samples/i).forEach(t => setTask(t, 'Done', 'samples submitted to DA RCPC'));
+  CFG.members.forEach(m => { if (samples.some(x => x.id.indexOf(m.prefix + '-') === 0 && x.collected instanceof Date)) tasksLike(/^Collect \+ photograph your samples/i, m.tab).forEach(t => setTask(t, 'In Progress', 'first sample collected')); });
+  const handover = tasks.filter(t => t.tab === 'Fe Anne' && (t.id === 'F-11' || /^Submit fresh, labeled samples/i.test(t.task)));
+  const pending = samples.filter(x => x.collected instanceof Date && !x.submitted);
+  if (pending.length) {
+    const tz = ss.getSpreadsheetTimeZone();
+    const earliest = pending.map(x => { const d = new Date(x.collected); d.setDate(d.getDate() + 1); return fmtDate_(d, tz); }).sort()[0];
+    handover.forEach(t => {
+      const sh = ss.getSheetByName(t.tab), due = sh.getRange(t.row, 6);
+      if (fmtDate_(due.getValue(), tz) !== earliest) { due.setValue(parseDate_(earliest)); done.push(t.id + ' due ' + earliest + ' (next day after collection)'); }
+      if (t.status === 'Done') {
+        sh.getRange(t.row, 5).setValue('Not Started'); sh.getRange(t.row, 9, 1, 2).clearContent();
+        t.status = 'Not Started'; done.push(t.id + ' reopened for the next RCPC batch');
+      }
+    });
+  } else if (samples.some(x => x.submitted)) handover.forEach(t => setTask(t, 'Done', 'all collected samples submitted to DA RCPC'));
   // 4) Training runs → "Retrain the baseline"
   if ((rec.training || []).some(r => /baseline/i.test(r.model))) tasksLike(/^Retrain the baseline/i).forEach(t => setTask(t, 'Done', 'baseline run logged'));
   // 5) Dataset sources → Rho's sources task
