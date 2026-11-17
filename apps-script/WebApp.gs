@@ -137,7 +137,7 @@ function describe_(fn, a) {
   }
   if (fn === 'setRcpcDate') return 'set the DA RCPC submission date → ' + show(a[0]);
   if (fn === 'submitSamples') return 'marked ' + (a[0] || []).length + ' sample(s) submitted to DA RCPC on ' + show(a[1]) + ': ' + short_((a[0] || []).join(', '), 80);
-  if (fn === 'setSetting') return 'set ' + ({ leafGoal: 'the leaf goal', classGoal: 'the per-class goal', defenseDate: 'the final defense date' }[a[0]] || a[0]) + ' → ' + show(a[1]);
+  if (fn === 'setSetting') return 'set ' + ({ leafGoal: 'the leaf goal', classGoal: 'the per-class goal', defenseDate: 'the final defense date', collectionDate: 'the RCPC collection date' }[a[0]] || a[0]) + ' → ' + show(a[1]);
   if (fn === 'addRecord') return 'added to ' + RECORDS[a[0]].tab + ': "' + short_(recordLabel_(a[0], a[1]), 50) + '"';
   if (fn === 'updateRecord' || fn === 'deleteRecord') {
     const R = RECORDS[a[0]], vals = ss.getSheetByName(R.tab).getRange(Number(a[1]), 1, 1, R.fields.length).getValues()[0];
@@ -344,15 +344,21 @@ function updateTask(tab, row, field, value) {
     if (!col) throw new Error('Field not editable: ' + field);
     if (field === 'status' && value === 'Done' && tab === 'Fe Anne' && (sh.getRange(row, 1).getValue() === 'F-11' || /^Submit fresh, labeled samples to DA RCPC/i.test(taskName))) {
       if (CURRENT_USER && CURRENT_USER !== 'Fe Anne') throw new Error('Fe Anne handles the RCPC hand-over for the team.');
+      const props = PropertiesService.getScriptProperties(), collectionDate = props.getProperty('SET_collectionDate');
+      if (!collectionDate) throw new Error('Choose the collection date in DA RCPC hand-over first.');
       const samples = sheet_('DA RCPC Samples'), tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
       const today = fmtDate_(new Date(), tz), stamp = parseDate_(today);
+      const plannedDue = parseDate_(collectionDate); plannedDue.setDate(plannedDue.getDate() + 1);
+      if (today !== fmtDate_(plannedDue, tz)) throw new Error('This batch must be handed over the day after collection: ' + fmtDate_(plannedDue, tz));
       const rows = samples.getLastRow() >= 4 ? samples.getRange(4, 1, samples.getLastRow() - 3, 10).getValues() : [];
+      let found = false;
       rows.forEach((r, i) => {
-        if (!SAMPLE_ID_RE.test(String(r[0] || '')) || !(r[2] instanceof Date) || r[9]) return;
-        const collected = fmtDate_(r[2], tz);
-        const due = new Date(r[2]); due.setDate(due.getDate() + 1);
-        if (collected < today && today <= fmtDate_(due, tz)) samples.getRange(i + 4, 10).setValue(stamp);
+        if (!SAMPLE_ID_RE.test(String(r[0] || '')) || !(r[2] instanceof Date) || fmtDate_(r[2], tz) !== collectionDate) return;
+        found = true;
+        if (!r[9]) samples.getRange(i + 4, 10).setValue(stamp);
       });
+      if (!found) throw new Error('No collected samples have the planned collection date.');
+      props.deleteProperty('SET_collectionDate');
     }
     sh.getRange(row, col).setValue(field === 'due' ? parseDate_(value) : value);
     if (field === 'status') {
@@ -1338,10 +1344,11 @@ function readSettings_() {
 }
 function setSetting(key, value) {
   if (!SETTINGS[key]) throw new Error('Unknown setting: ' + key);
+  if (key === 'collectionDate' && CURRENT_USER && CURRENT_USER !== 'Fe Anne') throw new Error('Fe Anne sets the RCPC collection date.');
   const p = PropertiesService.getScriptProperties();
   if (value === '' || value == null) p.deleteProperty('SET_' + key);
   else if (SETTINGS[key] === 'number') { const n = Math.max(0, Math.round(Number(value))); if (!isFinite(n)) throw new Error('Not a number'); p.setProperty('SET_' + key, String(n)); }
-  else { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value))) throw new Error('Bad date'); p.setProperty('SET_' + key, String(value)); }
+  else { parseDate_(value); p.setProperty('SET_' + key, String(value)); }
   return readSettings_();
 }
 /** Hand-over day: stamp many samples "Submitted to RCPC" at once. */
@@ -1454,10 +1461,11 @@ function autoLinks_() {
   // 3) Samples → each member's "Collect + photograph" task, and "Submit fresh samples"
   CFG.members.forEach(m => { if (samples.some(x => x.id.indexOf(m.prefix + '-') === 0 && x.collected instanceof Date)) tasksLike(/^Collect \+ photograph your samples/i, m.tab).forEach(t => setTask(t, 'In Progress', 'first sample collected')); });
   const handover = tasks.filter(t => t.tab === 'Fe Anne' && (t.id === 'F-11' || /^Submit fresh, labeled samples/i.test(t.task)));
-  const pending = samples.filter(x => x.collected instanceof Date && !x.submitted);
-  if (pending.length) {
-    const tz = ss.getSpreadsheetTimeZone();
-    const earliest = pending.map(x => { const d = new Date(x.collected); d.setDate(d.getDate() + 1); return fmtDate_(d, tz); }).sort()[0];
+  const collectionDate = PropertiesService.getScriptProperties().getProperty('SET_collectionDate');
+  if (collectionDate) {
+    const tz = ss.getSpreadsheetTimeZone(), dueDate = parseDate_(collectionDate);
+    dueDate.setDate(dueDate.getDate() + 1);
+    const earliest = fmtDate_(dueDate, tz);
     handover.forEach(t => {
       const sh = ss.getSheetByName(t.tab), due = sh.getRange(t.row, 6);
       if (fmtDate_(due.getValue(), tz) !== earliest) { due.setValue(parseDate_(earliest)); done.push(t.id + ' due ' + earliest + ' (next day after collection)'); }
@@ -1466,7 +1474,13 @@ function autoLinks_() {
         t.status = 'Not Started'; done.push(t.id + ' reopened for the next RCPC batch');
       }
     });
-  } else if (samples.some(x => x.submitted)) handover.forEach(t => setTask(t, 'Done', 'all collected samples submitted to DA RCPC'));
+  } else {
+    handover.forEach(t => {
+      if (t.status === 'Done') return;
+      const due = ss.getSheetByName(t.tab).getRange(t.row, 6);
+      if (due.getValue()) { due.clearContent(); done.push(t.id + ' collection date cleared'); }
+    });
+  }
   // 4) Training runs → "Retrain the baseline"
   if ((rec.training || []).some(r => /baseline/i.test(r.model))) tasksLike(/^Retrain the baseline/i).forEach(t => setTask(t, 'Done', 'baseline run logged'));
   // 5) Dataset sources → Rho's sources task

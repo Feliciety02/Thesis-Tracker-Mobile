@@ -42,14 +42,16 @@ function fakeSheet() {
 
 function contextFor(sheet, taskSheet = null) {
   const ss = { getSheetByName: name => name === 'DA RCPC Samples' ? sheet : name === 'Fe Anne' ? taskSheet : null, getSpreadsheetTimeZone: () => 'Asia/Manila', getUrl: () => 'https://docs.google.com/spreadsheets/d/test' };
+  const props = new Map();
   const ctx = vm.createContext({
     console,
     CFG: { title: 'Tracker', thesisTitle: 'Test', maxRows: 20, classes: ['Healthy'], expenseCategories: ['Sample collection', 'Printing', 'Transport', 'Other'], photoAngles: ['Whole leaf', 'Left side only', 'Top lesions', 'Right side only', 'Back in different light'],
       members: [{ tab: 'Fe Anne', prefix: 'FA', light: '#eee' }, { tab: 'Rho', prefix: 'RJ', light: '#eee' }] },
     RECORDS: { sources: { tab: 'Dataset Sources', fields: [['name', 'Name', 'text'], ['cordana', 'Cordana', 'num'], ['by', 'By', 'text']] } },
+    SETTINGS: { leafGoal: 'number', classGoal: 'number', defenseDate: 'date', collectionDate: 'date' },
     LINKS: {},
     SpreadsheetApp: { getActive: () => ss },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: () => '' }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: key => props.get(key) || '', setProperty: (key, value) => props.set(key, value), deleteProperty: key => props.delete(key) }) },
   });
   vm.runInContext(source, ctx);
   ctx.sheet_ = name => ss.getSheetByName(name) || sheet;
@@ -62,7 +64,6 @@ function contextFor(sheet, taskSheet = null) {
   ctx.photoRootUrl_ = () => '';
   ctx.folderUrl_ = () => '';
   ctx.readRecords_ = () => ({});
-  ctx.readSettings_ = () => ({});
   ctx.currentVersion_ = () => '0';
   ctx.fmtDate_ = value => value ? '2026-11-09' : '';
   return ctx;
@@ -284,26 +285,37 @@ test('RCPC task follows the collection date and completing it submits every due 
   samples.rows[3][0] = 'FA-001'; samples.rows[3][2] = yesterday;
   samples.rows[9][0] = 'RJ-001'; samples.rows[9][2] = yesterday;
   samples.rows[15][0] = 'FA-002'; // reserved label has no collected leaf
+  samples.rows[21][0] = 'CP-001'; samples.rows[21][2] = today; // a different collection batch
   tasks.rows[3][0] = 'F-11'; tasks.rows[3][1] = 'Submit fresh, labeled samples to DA RCPC Davao'; tasks.rows[3][4] = 'Not Started';
 
+  app.setSetting('collectionDate', iso(yesterday));
   app.autoLinks_();
   assert.equal(iso(tasks.rows[3][5]), iso(today), 'yesterday’s collection is due today');
   vm.runInContext("CURRENT_USER = 'Rho'", app);
   assert.throws(() => app.updateTask('Fe Anne', 4, 'status', 'Done'), /Fe Anne handles/);
+  assert.throws(() => app.setSetting('collectionDate', iso(today)), /Fe Anne sets/);
   assert.equal(samples.rows[3][9], '');
   vm.runInContext("CURRENT_USER = 'Fe Anne'", app);
   app.updateTask('Fe Anne', 4, 'status', 'Done');
   assert.ok(samples.rows[3][9] instanceof ScriptDate);
   assert.ok(samples.rows[9][9] instanceof ScriptDate);
   assert.equal(samples.rows[15][9], '', 'an empty reserved label must not be submitted');
+  assert.equal(samples.rows[21][9], '', 'another collection date must stay pending');
+  assert.equal(app.readSettings_().collectionDate, '', 'completed planning date must be blank');
   app.autoLinks_();
   assert.equal(tasks.rows[3][4], 'Done');
 
   samples.rows[15][2] = today;
+  app.setSetting('collectionDate', iso(today));
   app.autoLinks_();
   const tomorrow = new ScriptDate(today); tomorrow.setDate(tomorrow.getDate() + 1);
   assert.equal(iso(tasks.rows[3][5]), iso(tomorrow));
   assert.equal(tasks.rows[3][4], 'Not Started', 'a new collection reopens the next hand-over');
+  assert.throws(() => app.updateTask('Fe Anne', 4, 'status', 'Done'), /day after collection/);
+  assert.equal(samples.rows[21][9], '', 'the new batch cannot be submitted on collection day');
+  app.setSetting('collectionDate', '');
+  app.autoLinks_();
+  assert.equal(tasks.rows[3][5], '', 'clearing an active plan removes its task due date');
 });
 
 test('batch submission accepts other members’ collected leaves without creating missing samples', () => {

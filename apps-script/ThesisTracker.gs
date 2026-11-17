@@ -263,7 +263,7 @@ RECORDS.sources = {
            ['license', 'License / how to cite', 'text', 220], ['date', 'Date downloaded', 'date', 110], ['notes', 'Notes', 'text', 200], ['by', 'Added by', 'text', 90]],
 };
 
-const SETTINGS = { leafGoal: 'number', classGoal: 'number', defenseDate: 'date' };   // app goals + final defense date (Script Properties)
+const SETTINGS = { leafGoal: 'number', classGoal: 'number', defenseDate: 'date', collectionDate: 'date' };   // app goals + planned RCPC collection (Script Properties)
 
 /* ============================================================
  *  MENU & TRIGGERS

@@ -85,30 +85,42 @@ try {
     assert.equal(await page.locator('.smp').count(), 3);
     assert.equal(await page.getByText('Before the farm').count(), 0);
     assert.equal(await page.locator('[data-action="smpSent"]').count(), 0);
+    const yesterday = await page.evaluate(() => addDays(localDay(), -1));
+    await page.locator('[data-change="collectionPlan"]').fill(yesterday);
+    await page.waitForFunction(() => collectionPlanDate() === addDays(localDay(), -1) && rcpcSubmissionTask().due === localDay());
     page.on('dialog', dialog => dialog.accept());
-    await page.locator('[data-action="submitRcpcBatch"]').tap();
+    await page.locator('[data-change="rcpcDone"]').tap();
     await page.waitForFunction(() => S.data.samples.every(sample => sample.submitted && stageOf(sample) === 'waiting'));
+    await page.waitForFunction(() => collectionPlanDate() === '');
+    assert.equal(await page.locator('[data-change="collectionPlan"]').inputValue(), '');
 
     await page.evaluate(() => {
       S.data.samples.forEach(sample => { sample.submitted = ''; });
       const task = rcpcSubmissionTask(); task.status = 'Not Started'; task.completed = '';
-      S.view = 'tasks'; S.member = 'Fe Anne'; S.status = 'All'; render();
+      S.view = 'samples'; render();
     });
+    await page.locator('[data-change="collectionPlan"]').fill(yesterday);
+    await page.waitForFunction(() => collectionPlanDate() === addDays(localDay(), -1));
+    await page.evaluate(() => { S.view = 'tasks'; S.member = 'Fe Anne'; S.status = 'All'; render(); });
     const handoverTask = page.locator('#taskList .task').filter({ hasText: 'Submit fresh, labeled samples to DA RCPC Davao' });
     await handoverTask.locator('select.status').selectOption('Done');
     await page.waitForFunction(() => S.data.samples.every(sample => sample.submitted && stageOf(sample) === 'waiting'));
+    await page.waitForFunction(() => collectionPlanDate() === '');
     await page.evaluate(() => {
       S.data.samples.push({ id: 'FA-901', row: 0, date: localDay(), site: 'Test farm', by: 'Fe Anne',
         angles: [1], bagged: false, submitted: '', validated: '', notes: '' });
-      scheduleRcpcTask();
+      S.view = 'samples'; render();
     });
+    await page.locator('[data-change="collectionPlan"]').fill(await page.evaluate(() => localDay()));
     await page.waitForFunction(() => {
       const task = rcpcSubmissionTask();
       return task.due === addDays(localDay(), 1) && task.status === 'Not Started';
     });
+    assert.equal(await page.locator('[data-change="rcpcDone"]').count(), 0, 'today’s collection cannot be submitted early');
     await page.evaluate(() => {
       const task = rcpcSubmissionTask();
       task.status = 'Done'; task.due = localDay(); // older deployed server can return stale task state
+      S.view = 'tasks'; S.member = 'Fe Anne'; S.status = 'All';
       render();
     });
     assert.equal(await page.locator('#taskList .task').filter({ hasText: 'Submit fresh, labeled samples to DA RCPC Davao' }).locator('select.status').inputValue(), 'Not Started');

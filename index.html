@@ -1082,6 +1082,7 @@ const IS_PHONE = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(UA) || (/Ma
 document.documentElement.classList.add(IS_PHONE ? 'is-phone' : 'is-desktop');
 const CAM_STORE = 'bt:cam';
 const NATIVE_RECEIPT_STORE = 'bt:nativeReceipt';
+const COLLECTION_PLAN_STORE = 'bt:collectionPlanDate';
 const TOKEN_STORE = 'bt:token', ACCT_STORE = 'bt:acct', DATA_STORE = 'bt:data', INSTALL_SKIP = 'bt:installSkip';
 const TEAM = [
   { tab: 'Fe Anne', name: 'Fe Anne Malasarte', role: 'Team Leader', color: '#6a1b9a', prefix: 'FA' },
@@ -1271,7 +1272,7 @@ const Demo = (() => {
       classes: ['Cordana Leaf Spot','Black Sigatoka','Healthy','Unsure'], revStatuses: ['C','NC','NA'],
       expenseCategories: ['Sample collection','Printing','Transport','Food','Materials','Fees','Other'] },
     panel: { adviser: 'Ma\'am Charisse Barbosa', members: ['Mr. Aborde','Mr. Hernando','Ms. Yara'], defense: 'Outline Defense · Sep 22, 2026 · Accepted with major revision' },
-    settings: { leafGoal: 30, defenseDate: iso(45) },
+    settings: { leafGoal: 30, defenseDate: iso(45), collectionDate: '' },
     records: {
       ng: (() => {
         const T = (section, item, who, done) => ({ section, item, who, done: !!done, doneBy: done ? 'Cha' : '', notes: '' });
@@ -1349,7 +1350,7 @@ const Demo = (() => {
 /* =========================================================
    State + helpers
    ========================================================= */
-const S = { user: null, data: null, view: 'overview', member: 'All', status: 'Open', q: '', revOwner: 'All', revStatus: 'NC', panelTab: 'rev', revSelecting: false, ngFilter: 'All', sampleFilter: null, editTask: null, revSel: {}, paperOpen: false, addTaskOpen: false, addExpOpen: false, cam: null, uploading: {}, waiting: {}, queued: {}, uploadErrors: {}, serverPhotoLimit: 0, galleryRecovery: null, galleryRecoveryFresh: false, galleryRecoveryChecked: false, redo: {}, preparing: {}, thumbs: {}, previews: {}, shots: {}, phonePending: {}, issues: {}, open: {}, more: 'training', ov: null, gallery: false, photoIndex: null };
+const S = { user: null, data: null, view: 'overview', member: 'All', status: 'Open', q: '', revOwner: 'All', revStatus: 'NC', panelTab: 'rev', revSelecting: false, ngFilter: 'All', sampleFilter: null, editTask: null, revSel: {}, paperOpen: false, addTaskOpen: false, addExpOpen: false, cam: null, uploading: {}, waiting: {}, queued: {}, uploadErrors: {}, serverPhotoLimit: 0, serverCollectionPlan: null, galleryRecovery: null, galleryRecoveryFresh: false, galleryRecoveryChecked: false, redo: {}, preparing: {}, thumbs: {}, previews: {}, shots: {}, phonePending: {}, issues: {}, open: {}, more: 'training', ov: null, gallery: false, photoIndex: null };
 const VIEWS = [['overview','Home'],['tasks','Tasks'],['revisions','Panel'],['samples','Samples'],['supplies','Expenses']];
 const MORE = [['training', 'Training runs', 'table_chart'], ['sources', 'Dataset sources', 'dataset'], ['consults', 'Consultations', 'school'], ['defense', 'Final defense', 'event'], ['links', 'Links', 'link']];
 const recs = kind => ((S.data && S.data.records) || {})[kind] || [];
@@ -1383,7 +1384,7 @@ function dueText(t) {
 const byDue = (a, b) => (a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0;
 function member(tab) { return S.data.members.find(m => m.tab === tab); }
 function allTasks() {
-  const nextDue = rcpcNextDue();
+  const plan = collectionPlanDate(), nextDue = plan ? addDays(plan, 1) : '';
   return S.data.members.flatMap(m => m.tasks.map(t => {
     const shown = Object.assign({}, t, { tab: m.tab, color: m.color });
     if (m.tab === 'Fe Anne' && (t.id === 'F-11' || /^Submit fresh, labeled samples to DA RCPC/i.test(t.task)) && nextDue) {
@@ -1450,6 +1451,7 @@ function load(quiet) {
     });
     S.refreshPending = false;
     S.data = d;
+    S.serverCollectionPlan = 'collectionDate' in (d.settings || {});
     S.serverPhotoLimit = Array.isArray(d.photoAngles) ? d.photoAngles.length : 0;
     S.galleryRecoveryFresh = true;
     setOffline(false); persist();
@@ -2213,13 +2215,18 @@ function handoverCard() {
   const due = dueLeaves().length;
   const sent = d.samples.filter(x => freshness(x).st === 'ok').length;
   const invalid = d.samples.filter(x => ['late', 'expired'].includes(freshness(x).st)).length;
-  const batch = rcpcSubmissionBatch(localDay()), nextDue = rcpcNextDue();
+  const plan = collectionPlanDate(), handoverDate = plan ? addDays(plan, 1) : '';
+  const batch = plan ? d.samples.filter(x => x.date === plan && !x.submitted) : [];
   return '<div class="card" style="margin-bottom:14px;padding:14px 16px"><h3 style="margin:0">DA RCPC hand-over</h3>' +
     '<p class="small muted" style="margin:4px 0 0">Every leaf must reach DA RCPC the day after it\'s collected.</p>' +
     '<div class="hand" style="grid-template-columns:repeat(' + (invalid ? 3 : 2) + ',1fr)"><div><b>' + due + '</b><span>to send</span></div><div><b>' + sent + '</b><span>sent on time</span></div>' +
       (invalid ? '<div style="background:var(--red-soft)"><b style="color:var(--red)">' + invalid + '</b><span>invalid (late)</span></div>' : '') + '</div>' +
-    (S.user === 'Fe Anne' ? batch.length ? '<button class="btn" data-action="submitRcpcBatch">' + ic('check') + ' Mark all ' + batch.length + ' due sample' + (batch.length === 1 ? '' : 's') + ' submitted</button>' :
-      '<p class="small muted">' + (nextDue && nextDue >= localDay() ? 'Next hand-over: ' + esc(fmt(nextDue)) : nextDue ? 'Review overdue samples before the next hand-over.' : 'No collected samples waiting for hand-over.') + '</p>' : '') +
+    (S.user === 'Fe Anne' ? '<label class="fl" style="margin:10px 0">Collection date for this batch<input type="date" data-change="collectionPlan" value="' + esc(plan) + '" aria-label="Collection date for RCPC batch"></label>' : '') +
+    (plan ? '<p class="small">Submit every team sample collected ' + esc(fmt(plan)) + ' to DA RCPC by <b>' + esc(fmt(handoverDate)) + '</b>. ' + batch.length + ' collected sample' + (batch.length === 1 ? '' : 's') + ' in this batch.</p>' :
+      '<p class="small muted">Choose a collection date to schedule the next-day RCPC task.</p>') +
+    (S.user === 'Fe Anne' && plan && localDay() === handoverDate && batch.length ?
+      '<label class="ck" style="margin:12px 0"><input type="checkbox" data-change="rcpcDone"> Mark all ' + batch.length + ' sample' + (batch.length === 1 ? '' : 's') + ' submitted to RCPC</label>' : '') +
+    (S.user === 'Fe Anne' && plan && localDay() > handoverDate && batch.length ? '<p class="small" role="alert" style="color:var(--red)">This hand-over is late. Record the actual date in the submission list.</p>' : '') +
     '<button class="btn ghost" data-action="openSheet">' + ic('assignment') + ' Submission list</button></div>';
 }
 /* Where a leaf is in its journey. One stage, one next step. */
@@ -2237,16 +2244,28 @@ function rcpcSubmissionTask() {
   const lead = member('Fe Anne');
   return lead && lead.tasks.find(t => t.id === 'F-11' || /^Submit fresh, labeled samples to DA RCPC/i.test(t.task));
 }
-function rcpcSubmissionBatch(date) {
-  return S.data.samples.filter(x => x.date && !x.submitted && x.date < date && date <= addDays(x.date, 1));
+function collectionPlanDate() {
+  const supported = S.serverCollectionPlan == null ? 'collectionDate' in settings() : S.serverCollectionPlan;
+  return supported ? settings().collectionDate || '' : (S.user === 'Fe Anne' ? store.get(COLLECTION_PLAN_STORE) || '' : '');
 }
-function rcpcNextDue() {
-  const due = S.data.samples.filter(x => x.date && !x.submitted).map(x => addDays(x.date, 1)).sort();
-  return due[0] || '';
+function setCollectionPlanDate(date) {
+  if (date) store.set(COLLECTION_PLAN_STORE, date); else store.del(COLLECTION_PLAN_STORE);
+  const apply = () => { S.data.settings = Object.assign({}, settings(), { collectionDate: date }); };
+  if (S.serverCollectionPlan || DEMO) return save('setSetting', ['collectionDate', date], apply);
+  apply(); persist(); render();
+  return Promise.resolve(true);
+}
+function rcpcSubmissionBatch(date) {
+  const plan = collectionPlanDate();
+  return plan && plan < date && date <= addDays(plan, 1) ? S.data.samples.filter(x => x.date === plan && !x.submitted) : [];
 }
 function scheduleRcpcTask() {
-  const t = rcpcSubmissionTask(), due = rcpcNextDue();
-  if (!t || !due) return;
+  const t = rcpcSubmissionTask(), plan = collectionPlanDate(), due = plan ? addDays(plan, 1) : '';
+  if (!t) return;
+  if (!due) {
+    if (t.status !== 'Done' && t.due) save('updateTask', ['Fe Anne', t.row, 'due', ''], () => { t.due = ''; });
+    return;
+  }
   const reopen = t.status === 'Done';
   const updateStatus = () => {
     if (reopen) save('updateTask', ['Fe Anne', t.row, 'status', 'Not Started'], () => { t.status = 'Not Started'; t.completed = ''; t.doneBy = ''; });
@@ -2256,14 +2275,14 @@ function scheduleRcpcTask() {
 }
 function submitRcpcBatch(ids, date, finishTask) {
   if (S.user !== 'Fe Anne') return;
-  ids = [...new Set(ids)].filter(id => { const x = sampleById(id); return x && x.date && !x.submitted && x.date < date && date <= addDays(x.date, 1); });
+  const plan = collectionPlanDate();
+  ids = [...new Set(ids)].filter(id => { const x = sampleById(id); return x && x.date === plan && !x.submitted && x.date < date && date <= addDays(x.date, 1); });
   if (!ids.length) { toast('No collected samples are due for submission today.', 3500, true); return; }
   if (!confirm('Mark all ' + ids.length + ' collected sample' + (ids.length === 1 ? '' : 's') + ' as submitted to DA RCPC on ' + fmt(date) + '?\n\n' + ids.join(', '))) return;
   const task = finishTask ? rcpcSubmissionTask() : null;
   save('submitSamples', [ids, date], () => { ids.forEach(id => { const x = sampleById(id); if (x) x.submitted = date; }); }).then(result => {
     if (result === SAVE_FAILED) return;
-    if (task) save('updateTask', ['Fe Anne', task.row, 'status', 'Done'], () => { task.status = 'Done'; task.completed = date; task.doneBy = S.user; }).then(() => scheduleRcpcTask());
-    else scheduleRcpcTask();
+    if (task) save('updateTask', ['Fe Anne', task.row, 'status', 'Done'], () => { task.status = 'Done'; task.completed = date; task.doneBy = S.user; }).then(status => { if (status !== SAVE_FAILED) setCollectionPlanDate(''); });
   });
 }
 const TODO_STAGES = ['send', 'bag', 'photos'];
@@ -3216,7 +3235,6 @@ async function acceptShot(job, thumb, blob) {
       writes.push({ fn: 'updateSample', args: [job.id, 'date', sample.date], user: S.user, at: Date.now() });
       setOutbox(writes);
     }
-    scheduleRcpcTask();
   }
   if (job.firstCapture) {
     captureGps(job.id);
@@ -3697,7 +3715,6 @@ document.addEventListener('click', e => {
   if (a === 'recoverGallery') { recoverGalleryPhotos(true); return; }
   if (a === 'restoreGallerySamples') { restoreGallerySamples(); return; }
   if (a === 'smpBag') { const x = sampleById(el.dataset.id); if (x) markPacked(x.id); return; }
-  if (a === 'submitRcpcBatch') { submitRcpcBatch(rcpcSubmissionBatch(localDay()).map(x => x.id), localDay(), true); return; }
   if (a === 'actMore') { S.actAll = !S.actAll; render(); return; }
   if (a === 'gotoView') { S.view = v; S.member = 'All'; S.status = 'Open'; render(); window.scrollTo(0, 0); return; }
   if (a === 'goto') { S.view = 'tasks'; S.member = v; S.status = 'Open'; render(); window.scrollTo(0, 0); }
@@ -3938,6 +3955,16 @@ document.addEventListener('change', e => {
   const el = e.target, k = el.dataset.change;
   if (k === 'smpWho') { S.sampleFilter = el.value; render(); return; }
   if (k === 'taskStatus') { S.status = el.value; render(); return; }
+  if (k === 'collectionPlan') {
+    if (S.user !== 'Fe Anne') return;
+    setCollectionPlanDate(el.value).then(result => { if (result !== SAVE_FAILED) { scheduleRcpcTask(); render(); } });
+    return;
+  }
+  if (k === 'rcpcDone') {
+    if (el.checked) submitRcpcBatch(rcpcSubmissionBatch(localDay()).map(x => x.id), localDay(), true);
+    render();
+    return;
+  }
   if (!k) return;
   const row = +el.dataset.row, field = el.dataset.field;
   let val = el.type === 'checkbox' ? el.checked : el.type === 'number' ? (el.value === '' ? '' : Number(el.value)) : el.value;
