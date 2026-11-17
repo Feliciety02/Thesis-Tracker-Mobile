@@ -866,11 +866,11 @@ function buildSamples_(ss) {
   setSampleRules_(sh);
 }
 
-/** Colours on the Samples tab. Red = submitted late / not submitted by the day after collection (invalid for DA RCPC). */
+/** Colours on the Samples tab. Amber = hand-over date missing; red = recorded late. */
 function setSampleRules_(sh) {
   const n = Math.max(CFG.sampleRows, sh.getMaxRows() - 3);
   sh.setConditionalFormatRules([
-    rule_('=AND(REGEXMATCH(TO_TEXT($A4),"^[A-Z]{2}-[0-9]{3,}$"),$C4<>"",$J4="",TODAY()>$C4+1)', sh.getRange(4, 1, n, 16), '#fbe9e6', '#b83226'),
+    rule_('=AND(REGEXMATCH(TO_TEXT($A4),"^[A-Z]{2}-[0-9]{3,}$"),$C4<>"",$J4="",TODAY()>$C4+1)', sh.getRange(4, 1, n, 16), '#fff1d6', '#775b00'),
     rule_('=AND(REGEXMATCH(TO_TEXT($A4),"^[A-Z]{2}-[0-9]{3,}$"),$J4<>"",$C4<>"",INT($J4)>INT($C4)+1)', sh.getRange(4, 1, n, 16), '#fbe9e6', '#b83226'),
     rule_('=AND(REGEXMATCH(TO_TEXT($A4),"^[A-Z]{2}-[0-9]{3,}$"),$C4<>"",$J4="",TODAY()>=$C4+1)', sh.getRange(4, 10, n, 1), '#fff1d6', null),
     rule_('=AND(REGEXMATCH(TO_TEXT($A4),"^[A-Z]{2}-[0-9]{3,}$"),$J4<>"")', sh.getRange(4, 1, n, 1), '#c8e6c9', null),
@@ -953,7 +953,8 @@ function weeklyDigest() {
   const sv = smp && smp.getLastRow() >= 4 ? smp.getRange(4, 1, smp.getLastRow() - 3, 11).getValues().filter(r => /^[A-Z]{2}-\d{3,}$/.test(String(r[0] || ''))) : [];
   const withPhotos = sv.filter(r => Number(r[5]) >= CFG.photoAngles.length).length, newWeek = sv.filter(r => r[2] instanceof Date && r[2] >= weekAgo).length;
   const sent = sv.filter(r => r[9]).length, validated = sv.filter(r => r[10] && r[10] !== 'Unsure').length;
-  const invalid = sv.filter(r => r[2] instanceof Date && (r[9] ? !submittedOnTime_(r[2], r[9]) : (today - r[2]) / 864e5 > 1.5)).length;
+  const invalid = sv.filter(r => r[2] instanceof Date && r[9] && !submittedOnTime_(r[2], r[9])).length;
+  const missingDate = sv.filter(r => r[2] instanceof Date && !r[9] && (today - r[2]) / 864e5 > 1.5).length;
   const rev = ss.getSheetByName('Panel Revisions');
   const rv = rev && rev.getLastRow() >= 4 ? rev.getRange(4, 1, rev.getLastRow() - 3, 5).getValues().filter(r => r[2] && r[4] !== 'NA') : [];
   const complied = rv.filter(r => r[4] === 'C').length;
@@ -966,7 +967,8 @@ function weeklyDigest() {
     '<table style="border-collapse:collapse;background:#f7f6ef;border-radius:8px"><tr style="background:#1f4b3a;color:#fff"><th style="padding:6px 10px">Member</th><th style="padding:6px 10px">Done this week</th><th style="padding:6px 10px">Open</th><th style="padding:6px 10px">Overdue</th></tr>' + rows.join('') + '</table>' +
     '<h3 style="margin:18px 0 6px">DA RCPC samples</h3><p>' + sv.length + ' leaves (' + newWeek + ' new this week) · ' + withPhotos + ' with photos' + (goal ? ' · goal ' + goal : '') +
     ' · ' + sent + ' sent to RCPC · ' + validated + ' with RCPC results</p>' +
-    (invalid ? '<p style="color:#b83226"><b>Warning: ' + invalid + ' leaf/leaves invalid</b>: not submitted to DA RCPC the day after collection.</p>' : '') +
+    (missingDate ? '<p style="color:#775b00"><b>' + missingDate + ' sample hand-over date(s) missing.</b> Record the actual RCPC date to check whether they arrived on time.</p>' : '') +
+    (invalid ? '<p style="color:#b83226"><b>Warning: ' + invalid + ' leaf/leaves recorded late</b>: submitted to DA RCPC after the next-day deadline.</p>' : '') +
     '<h3 style="margin:18px 0 6px">Panel revisions</h3><p>' + complied + ' of ' + rv.length + ' complied</p>' +
     (rcpc instanceof Date ? '<p>DA RCPC submission: <b>' + fmt(rcpc) + '</b></p>' : '') +
     (defense ? '<p>Final defense: <b>' + fmt(new Date(defense + 'T00:00:00')) + '</b></p>' : '') +

@@ -126,8 +126,34 @@ try {
     assert.equal(await page.locator('#taskList .task').filter({ hasText: 'Submit fresh, labeled samples to DA RCPC Davao' }).locator('select.status').inputValue(), 'Not Started');
     assert.equal(await page.locator('#taskList .task').filter({ hasText: 'Submit fresh, labeled samples to DA RCPC Davao' }).locator('[data-field="due"]').inputValue(), await page.evaluate(() => addDays(localDay(), 1)));
 
+    await page.evaluate(() => {
+      const captured = addDays(localDay(), -2);
+      S.data.samples = ['RJ-900', 'CP-900'].map(id => ({ id, row: 0, date: captured,
+        site: 'Test farm', by: ownerOf(id), angles: [1, 2, 3, 4, 5], bagged: true,
+        submitted: '', validated: '', notes: '' }));
+      S.view = 'overview'; render();
+    });
+    await page.locator('[data-action="showCheckDates"]').tap();
+    assert.equal(await page.evaluate(() => S.view), 'samples');
+    assert.equal(await page.locator('[data-action="smpStage"][data-v="unrecorded"]').getAttribute('aria-selected'), 'true');
+    assert.equal(await page.locator('[data-action="smpStage"][data-v="unrecorded"]').count(), 1);
+    assert.equal(await page.locator('[data-action="smpStage"][data-v="invalid"]').count(), 0);
+    await page.locator('[data-action="openSheet"]').tap();
+    await page.locator('[data-change="sheetDate"]').fill(await page.evaluate(() => addDays(localDay(), -1)));
+    assert.equal(await page.locator('[data-change="sheetSel"]:checked').count(), 2);
+    await page.locator('[data-action="sheetSubmit"]').tap();
+    await page.waitForFunction(() => S.data.samples.every(sample => sample.submitted && stageOf(sample) === 'waiting'));
+
+    await page.evaluate(() => {
+      S.queued = { 'RJ-900_01': { id: 'RJ-900', angle: 1 } };
+      S.waiting = { 'RJ-900_01': Date.now() };
+      S.uploading = { 'RJ-900_01': Date.now() };
+      updateSyncChip();
+    });
+    assert.match(await page.locator('#syncChip').innerText(), /1/);
+
     assert.deepEqual(errors, []);
-    console.log('Touch browser smoke passed: editors save and Fe Anne submits the team sample batch from Samples or Tasks');
+    console.log('Touch browser smoke passed: editors, hand-over backfill, and photo sync count');
   } finally {
     await browser.close();
   }

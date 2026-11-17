@@ -6,10 +6,11 @@
 
 <p align="center">A fieldwork app for banana leaf samples, team tasks, panel revisions, and thesis expenses. Capture on Android, continue offline, and sync with the team's Google Sheet and Drive.</p>
 
-<p align="center"><code>Android 1.0.24</code> &nbsp; <code>Web / PWA</code> &nbsp; <code>Capacitor</code> &nbsp; <code>Google Sheets + Drive</code></p>
+<p align="center"><code>Android 1.0.25</code> &nbsp; <code>Web / PWA</code> &nbsp; <code>Capacitor</code> &nbsp; <code>Google Sheets + Drive</code></p>
 
 <p align="center">
   <a href="#app-tour"><strong>App tour</strong></a> &nbsp;·&nbsp;
+  <a href="docs/team-workflow.md"><strong>Team workflow</strong></a> &nbsp;·&nbsp;
   <a href="#how-it-works"><strong>How it works</strong></a> &nbsp;·&nbsp;
   <a href="#get-the-android-app"><strong>Android APK</strong></a> &nbsp;·&nbsp;
   <a href="docs/screenshots/banana-thesis-tracker-v1.0.20/README.md"><strong>Screenshot archive</strong></a>
@@ -71,7 +72,7 @@ The Android app stores a private upload copy until Drive confirms each photo. A 
 
 ## Get the Android app
 
-Download the signed [Banana Thesis Tracker 1.0.24 APK](Banana-Thesis-Tracker-Android.apk). Its [SHA-256 checksum](Banana-Thesis-Tracker-Android.apk.sha256) is included. **Install it over an existing team release; do not uninstall first** if photos are waiting to upload. The Chrome-installed web app has separate phone storage from the native Android app.
+Download the signed [Banana Thesis Tracker 1.0.25 APK](Banana-Thesis-Tracker-Android.apk). Its [SHA-256 checksum](Banana-Thesis-Tracker-Android.apk.sha256) is included. **Install it over an existing team release; do not uninstall first** if photos are waiting to upload. The Chrome-installed web app has separate phone storage from the native Android app.
 
 The APK contains the current Android interface and background uploader. Changes to the shared Apps Script service take effect only after the deployment owner publishes a [new web-app version](#update-the-apps-script-copy-and-paste).
 
@@ -133,7 +134,7 @@ If the older deployed script says `Cannot call SpreadsheetApp.getUi() from this 
 4. After about a minute, the app is live at `https://<your-username>.github.io/<repo-name>/`.
 
 ### 3. Install on phones
-- **Android native app (named Gallery photos and background Drive upload):** download the [signed 1.0.24 team APK](Banana-Thesis-Tracker-Android.apk). Its launcher icon matches the green leaf used by the website. Installing the website from Chrome does not give it native Gallery access or Android background uploads.
+- **Android native app (named Gallery photos and background Drive upload):** download the [signed 1.0.25 team APK](Banana-Thesis-Tracker-Android.apk). Its launcher icon matches the green leaf used by the website. Installing the website from Chrome does not give it native Gallery access or Android background uploads.
 - **Android web app (Chrome):** open the link, then tap **Install** on the first screen, or on the Home card that shows until the app is installed (or ⋮ → Install app).
 - **iPhone (Safari):** open the link, then Share → **Add to Home Screen**.
 - **Laptop (Chrome / Edge):** use the install icon in the address bar.
@@ -178,9 +179,9 @@ Only the team's six emails (two per member, listed in `accounts` in `ThesisTrack
 
 ## Field day
 - **Nov 9 DahonMD meeting:** the updated script adds a high-priority task due Nov 9 for each member. Each agenda line is a tappable task checkbox once `setupTracker` has added the live task rows. The four sections cover meeting decisions, RCPC requirements, collection preparation, and laboratory/testing. The 100-leaf target, 20 backup candidates, disease classes, and 80/20 collection split remain proposals until the meeting approves them.
-- **Next-day rule:** every leaf must reach DA RCPC **the day after it's collected**. Each leaf shows *Send to RCPC by tomorrow* / *today*; Home and Samples show a red alert while leaves are due. A leaf that's sent later (or never) is marked **invalid**: it can't go on the submission list, isn't counted in the paper numbers, isn't exported for training, and its row turns red in the sheet.
+- **Next-day rule:** every leaf must reach DA RCPC **the day after it's collected**. Each leaf shows *Send to RCPC by tomorrow* / *today*; Home and Samples show an alert while leaves are due. If the hand-over date is missing after the deadline, the sample appears under **Check dates** so the actual date can still be recorded. A recorded late submission appears under **Invalid** and is excluded from paper numbers and the training export.
 - **Leaves goal**: set it on the Samples page. The progress bar shows the team total.
-- **RCPC hand-over**: Fe Anne sees everyone's samples by default. She enters a collection date at the top of Samples; this schedules the team's RCPC task for the following day. On that day, checking **Mark all samples submitted** or setting the task to **Done** moves every leaf collected on that date, across all members, to **Waiting for RCPC**. The collection-date planning field then clears for the next batch; each leaf's recorded date remains. The submission list can still be printed or saved as a PDF.
+- **RCPC hand-over**: Fe Anne sees everyone's samples by default. She enters a collection date at the top of Samples; this schedules the team's RCPC task for the following day. On that day, checking **Mark all samples submitted** or setting the task to **Done** moves every leaf collected on that date, across all members, to **Waiting for RCPC**. The Submission list also allows an actual date to be entered later and selects the previous day's unrecorded samples automatically. The list can be printed or saved as a PDF. See the [one-page team workflow](docs/team-workflow.md).
 - **When DA RCPC sends results** (likely as their own spreadsheet): copy each leaf's result into the **RCPC Validated Class** column of the **DA RCPC Samples** tab, matching by label. The app picks them up by itself: leaves show the RCPC result, and **Paper numbers** appears, counting **only RCPC-confirmed leaves**.
 
 ## Training, consultations, final defense (More tab)
