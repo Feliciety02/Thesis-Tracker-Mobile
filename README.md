@@ -6,7 +6,7 @@
 
 <p align="center">A fieldwork app for banana leaf samples, team tasks, panel revisions, and thesis expenses. Capture on Android, continue offline, and sync with the team's Google Sheet and Drive.</p>
 
-<p align="center"><code>Android 1.0.25</code> &nbsp; <code>Web / PWA</code> &nbsp; <code>Capacitor</code> &nbsp; <code>Google Sheets + Drive</code></p>
+<p align="center"><code>Android 1.0.26</code> &nbsp; <code>Web / PWA</code> &nbsp; <code>Capacitor</code> &nbsp; <code>Google Sheets + Drive</code></p>
 
 <p align="center">
   <a href="#app-tour"><strong>App tour</strong></a> &nbsp;·&nbsp;
@@ -72,7 +72,7 @@ The Android app stores a private upload copy until Drive confirms each photo. A 
 
 ## Get the Android app
 
-Download the signed [Banana Thesis Tracker 1.0.25 APK](Banana-Thesis-Tracker-Android.apk). Its [SHA-256 checksum](Banana-Thesis-Tracker-Android.apk.sha256) is included. **Install it over an existing team release; do not uninstall first** if photos are waiting to upload. The Chrome-installed web app has separate phone storage from the native Android app.
+Download the signed [Banana Thesis Tracker 1.0.26 APK](Banana-Thesis-Tracker-Android.apk). Its [SHA-256 checksum](Banana-Thesis-Tracker-Android.apk.sha256) is included. **Install it over an existing team release; do not uninstall first** if photos are waiting to upload. The Chrome-installed web app has separate phone storage from the native Android app.
 
 The APK contains the current Android interface and background uploader. Changes to the shared Apps Script service take effect only after the deployment owner publishes a [new web-app version](#update-the-apps-script-copy-and-paste).
 
@@ -134,7 +134,7 @@ If the older deployed script says `Cannot call SpreadsheetApp.getUi() from this 
 4. After about a minute, the app is live at `https://<your-username>.github.io/<repo-name>/`.
 
 ### 3. Install on phones
-- **Android native app (named Gallery photos and background Drive upload):** download the [signed 1.0.25 team APK](Banana-Thesis-Tracker-Android.apk). Its launcher icon matches the green leaf used by the website. Installing the website from Chrome does not give it native Gallery access or Android background uploads.
+- **Android native app (named Gallery photos and background Drive upload):** download the [signed 1.0.26 team APK](Banana-Thesis-Tracker-Android.apk). Its launcher icon matches the green leaf used by the website. Installing the website from Chrome does not give it native Gallery access or Android background uploads.
 - **Android web app (Chrome):** open the link, then tap **Install** on the first screen, or on the Home card that shows until the app is installed (or ⋮ → Install app).
 - **iPhone (Safari):** open the link, then Share → **Add to Home Screen**.
 - **Laptop (Chrome / Edge):** use the install icon in the address bar.
