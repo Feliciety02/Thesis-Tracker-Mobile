@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/readme-banner.svg" width="1200" alt="Illustrated Banana Thesis Tracker banner showing the sample workflow on Android">
+  <img src="docs/readme/banner.svg" width="1200" alt="Banana Thesis Tracker logo and name on a soft green gradient, with a phone showing the Samples screen">
 </p>
 
 <h1 align="center">Banana Thesis Tracker</h1>
@@ -9,6 +9,13 @@
 <p align="center"><code>Android 1.0.26</code> &nbsp; <code>Web / PWA</code> &nbsp; <code>Capacitor</code> &nbsp; <code>Google Sheets + Drive</code></p>
 
 <p align="center">
+  <a href="#get-the-android-app"><img src="docs/readme/apk-button.svg" width="216" alt="Get the APK"></a>
+  <br>
+  <sub>Signed Android 1.0.26 APK with a SHA-256 checksum. Install over an existing team release.</sub>
+</p>
+
+<p align="center">
+  <a href="#at-a-glance"><strong>At a glance</strong></a> &nbsp;·&nbsp;
   <a href="#app-tour"><strong>App tour</strong></a> &nbsp;·&nbsp;
   <a href="docs/team-workflow.md"><strong>Team workflow</strong></a> &nbsp;·&nbsp;
   <a href="#how-it-works"><strong>How it works</strong></a> &nbsp;·&nbsp;
