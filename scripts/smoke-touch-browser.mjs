@@ -155,21 +155,41 @@ try {
     await page.evaluate(() => {
       const at = Date.now() - 3 * 60 * 60 * 1000;
       S.queued = { 'FA-900_01': { id: 'FA-900', angle: 1, at, owner: S.user } };
+      S.nativeJobsLoaded = true;
       S.waiting = {};
       S.uploading = {};
-      S.uploadErrors = { 'FA-900_01': 'Software caused connection abort' };
+      S.uploadErrors = { 'FA-900_01': 'Value <!doctype of type java.lang.String cannot be converted to JSONObject' };
       S.data.samples[0].images = [{ angle: 1, url: 'https://drive.google.com/file/test' }];
       nativeSessionReady = Promise.resolve(true);
+      window.nativeStatus = { pending: [{ key: 'FA-900_01', at, owner: S.user,
+        error: 'Value <!doctype of type java.lang.String cannot be converted to JSONObject' }], completed: [] };
       window.ThesisBackgroundUpload = {
         available: true,
-        status: async () => ({ pending: [], completed: [] }),
+        status: async () => window.nativeStatus,
         retry: async () => { window.retryRequested = true; },
       };
-      render();
     });
-    assert.match(await page.locator('.smpsum').innerText(), /1 confirmed in Drive/);
-    assert.match(await page.locator('.smpsum').innerText(), /1 photo pending.*Retrying automatically/);
-    assert.match(await page.locator('.smpsum [role="alert"]').innerText(), /at least 2 hours/);
+    await page.evaluate(() => syncNativePhotos());
+    await page.evaluate(() => render());
+    assert.equal(await page.locator('.upload-stat').first().locator('b').innerText(), '1');
+    assert.ok(Number(await page.locator('.upload-stat').last().locator('b').innerText()) >= 1);
+    assert.match(await page.locator('.upload-state').innerText(), /web page.*Automatic retry is scheduled/);
+    assert.doesNotMatch(await page.locator('.smpsum').innerText(), /<!doctype|JSONObject/);
+    assert.match(await page.locator('.upload-note').innerText(), /over 2 hours/);
+    await page.evaluate(() => { Object.defineProperty(navigator, 'onLine', { configurable: true, value: false }); render(); });
+    assert.equal(await page.getByRole('button', { name: 'Retry uploads' }).isEnabled(), true);
+    await page.evaluate(() => { delete navigator.onLine; });
+    await page.evaluate(() => {
+      window.nativeStatus.active = { key: 'FA-900_01', at: window.nativeStatus.pending[0].at, owner: S.user };
+      window.nativeStatus.pending.push({ key: 'FA-900_02', owner: S.user, at: Date.now() });
+    });
+    await page.evaluate(() => syncNativePhotos());
+    await page.evaluate(() => render());
+    assert.match(await page.locator('.upload-state').innerText(), /Uploading FA-900_01.jpg to Drive/);
+    assert.match(await page.locator('.upload-state').innerText(), /\d+ waiting/);
+    assert.ok(Number(await page.locator('.upload-stat').last().locator('b').innerText()) >= 2);
+    assert.equal(await page.locator('.upload-track').count(), 1);
+    assert.equal(await page.locator('.upload-stat').last().locator('.spin-i').count(), 1);
     await page.getByRole('button', { name: 'Retry uploads' }).tap();
     await page.waitForFunction(() => window.retryRequested && !S.retryingPhotos);
 

@@ -945,6 +945,23 @@ body.noscroll{overflow:hidden}
 .ss span{font-size:12px;color:var(--muted)}
 .ss .bad b,.ss .bad span{color:var(--red)}
 .smpsum .bar{margin-top:10px}
+.upload-panel{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--soft);min-width:0}
+.upload-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.upload-stat{min-width:0;display:flex;align-items:center;gap:9px;padding:10px;border-radius:11px;background:var(--card)}
+.upload-stat .ic{flex:none;color:var(--brand)}
+.upload-stat b{display:block;font-family:var(--hfont);font-size:22px;line-height:1.1;color:var(--ink)}
+.upload-stat small{display:block;font-size:11px;line-height:1.25;color:var(--muted)}
+.upload-stat .spin-i{margin:0;color:var(--brand)}
+.upload-state{display:flex;align-items:flex-start;gap:7px;margin-top:10px;font-size:12px;line-height:1.4;color:var(--ink);min-width:0}
+.upload-state>span:last-child{min-width:0;overflow-wrap:anywhere}
+.upload-state .spin-i{margin-top:2px}
+.upload-track{height:4px;margin-top:10px;border-radius:5px;background:var(--line);overflow:hidden}
+.upload-track i{display:block;width:34%;height:100%;border-radius:5px;background:var(--brand);animation:upload-slide 1.5s ease-in-out infinite alternate}
+@keyframes upload-slide{from{transform:translateX(0)}to{transform:translateX(195%)}}
+.upload-note{margin-top:8px;font-size:11px;line-height:1.4;color:var(--muted)}
+.upload-panel .btn{margin-top:10px}
+@media(max-width:390px){.upload-stats{gap:6px}.upload-stat{padding:8px;gap:5px}.upload-stat b{font-size:19px}}
+@media(prefers-reduced-motion:reduce){.upload-track i{animation:none;width:100%}}
 .segtabs{display:flex;gap:4px;background:var(--soft);border-radius:14px;padding:4px;margin:0 0 12px;overflow-x:auto;scrollbar-width:none}
 .segtabs::-webkit-scrollbar{display:none}
 .segtabs button{flex:1 0 auto;border:1px solid var(--outline);background:var(--card);border-radius:10px;min-height:40px;padding:0 12px;font:inherit;font-weight:700;font-size:14px;color:var(--ink);cursor:pointer;white-space:nowrap}
@@ -1376,7 +1393,7 @@ const Demo = (() => {
 /* =========================================================
    State + helpers
    ========================================================= */
-const S = { user: null, data: null, view: 'overview', member: 'All', status: 'Open', q: '', revOwner: 'All', revStatus: 'NC', panelTab: 'rev', revSelecting: false, ngFilter: 'All', sampleFilter: null, editTask: null, revSel: {}, paperOpen: false, addTaskOpen: false, addExpOpen: false, cam: null, uploading: {}, waiting: {}, queued: {}, uploadErrors: {}, serverPhotoLimit: 0, serverCollectionPlan: null, galleryRecovery: null, galleryRecoveryFresh: false, galleryRecoveryChecked: false, redo: {}, preparing: {}, thumbs: {}, previews: {}, shots: {}, phonePending: {}, issues: {}, open: {}, more: 'training', ov: null, gallery: false, photoIndex: null };
+const S = { user: null, data: null, view: 'overview', member: 'All', status: 'Open', q: '', revOwner: 'All', revStatus: 'NC', panelTab: 'rev', revSelecting: false, ngFilter: 'All', sampleFilter: null, editTask: null, paperOpen: false, addTaskOpen: false, addExpOpen: false, cam: null, uploading: {}, waiting: {}, queued: {}, nativePending: {}, nativeActive: null, nativeRetry: '', nativeJobsLoaded: false, uploadErrors: {}, serverPhotoLimit: 0, serverCollectionPlan: null, galleryRecovery: null, galleryRecoveryFresh: false, galleryRecoveryChecked: false, redo: {}, preparing: {}, thumbs: {}, previews: {}, shots: {}, phonePending: {}, issues: {}, open: {}, more: 'training', ov: null, gallery: false, photoIndex: null };
 const VIEWS = [['overview','Home'],['tasks','Tasks'],['revisions','Panel'],['samples','Samples'],['supplies','Expenses']];
 const MORE = [['training', 'Training runs', 'table_chart'], ['sources', 'Dataset sources', 'dataset'], ['consults', 'Consultations', 'school'], ['defense', 'Final defense', 'event'], ['links', 'Links', 'link']];
 const recs = kind => ((S.data && S.data.records) || {})[kind] || [];
@@ -1605,7 +1622,8 @@ function logout() {
   setTimeout(() => lock(), 50);
 }
 function signIn(tab) {
-  if (S.user !== tab) { S.galleryRecoveryChecked = false; S.galleryRecoveryFresh = false; S.galleryRecovery = null; }
+  if (S.user !== tab) { S.galleryRecoveryChecked = false; S.galleryRecoveryFresh = false; S.galleryRecovery = null;
+    S.nativePending = {}; S.nativeActive = null; S.nativeRetry = ''; S.nativeJobsLoaded = false; }
   S.user = tab; S.member = tab;
   if (nativeUploadAvailable()) nativeSessionReady = window.ThesisBackgroundUpload.setSession(store.get(TOKEN_STORE) || '', API_URL, tab).then(() => true, () => false);
   document.getElementById('login').hidden = true;
@@ -1663,12 +1681,14 @@ const SPIN = '<span class="spin-i" aria-hidden="true"></span>';
 // button label while waiting: spinner + short text, and the button can't be tapped twice
 const busyBtn = (busy, label, busyLabel) => busy ? ' disabled aria-busy="true">' + SPIN + busyLabel : '>' + label;
 function photoUploadOverdue(job) {
-  return job && job.kind !== 'receipt' && job.at && Date.now() - job.at >= 2 * 60 * 60 * 1000 &&
-    (job.owner || ownerOf(job.id)) === S.user;
+  const id = job && (job.id || String(job.key || '').split('_')[0]);
+  return job && id && !String(job.key || '').startsWith('rcpt_') && job.kind !== 'receipt' && job.at &&
+    Date.now() - job.at >= 2 * 60 * 60 * 1000 && (job.owner || ownerOf(id)) === S.user;
 }
 function updateSyncChip() {
   const writes = outbox();
-  const photos = new Set([...Object.keys(S.queued), ...Object.keys(S.waiting), ...Object.keys(S.uploading), ...Object.keys(S.preparing)]);
+  const photos = new Set([...Object.keys(S.queued), ...Object.keys(S.waiting), ...Object.keys(S.uploading),
+    ...Object.keys(S.preparing), ...Object.keys(S.nativePending || {})]);
   const n = writes.length + photos.size;
   const blocked = writes[0] && writes[0].error;
   const errorBar = document.getElementById('writeError');
@@ -1681,12 +1701,16 @@ function updateSyncChip() {
   const el = document.getElementById('syncChip');
   if (!el) return;
   const errors = Object.values(S.uploadErrors).filter(Boolean);
-  const overdue = Object.values(S.queued).some(photoUploadOverdue);
+  const overdue = [...Object.values(S.queued), ...Object.values(S.nativePending || {})].some(photoUploadOverdue);
+  const active = S.nativeActive && S.nativeActive.owner === S.user || Object.keys(S.uploading).length > 0;
   el.hidden = !n && !errors.length;
-  el.title = blocked ? 'A change needs attention: ' + blocked : overdue ? 'Sample photos have been pending for at least 2 hours. Open Samples for upload status.'
-    : errors.length ? errors.length + ' upload error(s): ' + errors[0] : n + ' change' + (n > 1 ? 's' : '') + ' waiting to sync';
-  if (blocked || errors.length || overdue) el.innerHTML = ic('error') + ' ' + (n || errors.length) + '<span class="lng"> need attention</span>';
-  else if (navigator.onLine && (flushing || Object.keys(S.uploading).length)) el.innerHTML = SPIN + '<span class="lng">Syncing </span>' + n;
+  el.title = blocked ? 'A change needs attention: ' + blocked : errors.length ? errors.length + ' upload error(s): ' + errors[0]
+    : active ? 'Photo upload in progress. ' + n + ' item' + (n === 1 ? '' : 's') + ' remain.'
+    : overdue ? 'Sample photos have been pending for at least 2 hours. Open Samples for upload status.'
+    : n + ' change' + (n > 1 ? 's' : '') + ' waiting to sync';
+  if (blocked || errors.length) el.innerHTML = ic('error') + ' ' + (n || errors.length) + '<span class="lng"> need attention</span>';
+  else if (active || navigator.onLine && flushing) el.innerHTML = SPIN + '<span class="lng">Uploading </span>' + n;
+  else if (overdue) el.innerHTML = ic('error') + ' ' + n + '<span class="lng"> waiting</span>';
   else el.innerHTML = '' + ic('hourglass_empty') + ' ' + n + '<span class="lng"> to sync</span>';
 }
 function flushOutbox(force) {
@@ -2370,19 +2394,22 @@ function vSamples() {
   tabs.push(['all', 'All', pool.length]);
   const stage = tabs.some(t => t[0] === S.smpStage) ? S.smpStage : 'todo';
   const lp = leafProgress();
-  const pending = new Set(Object.keys(S.queued).concat(Object.keys(S.waiting), Object.keys(S.uploading)));
+  const pending = new Set(Object.keys(S.queued).concat(Object.keys(S.waiting), Object.keys(S.uploading), Object.keys(S.nativePending)));
   const photoKeys = [...pending].filter(key => !key.startsWith('rcpt_') &&
-    (S.queued[key]?.owner || ownerOf(key.split('_')[0])) === me);
+    (S.queued[key]?.owner || S.nativePending[key]?.owner || ownerOf(key.split('_')[0])) === me);
   const confirmed = pool.reduce((count, sample) => count + (sample.images || []).filter(image => image.url).length, 0);
-  const overdue = photoKeys.some(key => photoUploadOverdue(S.queued[key]));
-  const errors = photoKeys.map(key => S.uploadErrors[key]).filter(Boolean);
+  const overdue = photoKeys.some(key => photoUploadOverdue(S.queued[key] || S.nativePending[key]));
+  const errors = photoKeys.map(key => S.uploadErrors[key]).filter(error => error && !retryableUploadError(error));
   const uploadProblem = S.serverPhotoLimit && S.serverPhotoLimit < MAX_ANGLES
     ? 'The live tracker server accepts only ' + S.serverPhotoLimit + ' photos per leaf. Update and redeploy the Apps Script for all five photos.'
     : errors.length ? errors[0] : '';
-  const uploadStatus = !navigator.onLine ? 'Waiting for connection'
-    : errors.some(error => /connection|timed out|resolve host/i.test(error)) ? 'Connection interrupted. Retrying automatically.'
-    : errors.some(error => /sign in/i.test(error)) ? 'Sign in again to resume uploads.'
-    : uploadProblem || 'Waiting for Drive confirmation';
+  const activeKey = S.nativeActive?.owner === me && photoKeys.includes(S.nativeActive.key) ? S.nativeActive.key
+    : photoKeys.find(key => S.uploading[key]);
+  const uploadingNow = !!activeKey;
+  const activeName = uploadingNow ? activeKey.replace(/_(\d+)$/, (_, angle) => '_' + String(angle).padStart(2, '0')) + '.jpg' : '';
+  const uploadStatus = uploadingNow ? 'Uploading ' + activeName + ' to Drive'
+    : uploadProblem || S.nativeRetry || (!navigator.onLine ? 'Waiting for connection' : 'Queued for Drive upload');
+  const waitingCount = Math.max(0, photoKeys.length - (uploadingNow ? 1 : 0));
   const recovery = S.galleryRecovery;
   let recoveryInfo = '';
   if (nativeUploadAvailable() && window.ThesisBackgroundUpload.scanNamedPhotos) {
@@ -2427,13 +2454,18 @@ function vSamples() {
       '<div class="' + (pool.some(x => freshness(x).st === 'today') ? 'bad' : '') + '"><b>' + pool.filter(x => ['today', 'tomorrow'].indexOf(freshness(x).st) > -1).length + '</b><span>to send</span></div>' +
       '<div><b>' + lp.done + (lp.goal ? '<small>/' + lp.goal + '</small>' : '') + '</b><span>team leaves</span></div></div>' +
       (lp.goal ? '<div class="bar"><i style="width:' + lp.p + '%"></i></div>' : '') +
-      '<div class="small" style="margin-top:8px">' + ic('check_circle') + ' ' + confirmed + ' confirmed in Drive</div>' +
-      (photoKeys.length ? '<div class="small" style="margin-top:8px" role="status">' + ic('cloud_off') + ' ' +
-        photoKeys.length + ' photo' + (photoKeys.length === 1 ? '' : 's') + ' pending on this phone · ' + esc(uploadStatus) + '</div>' +
-        (overdue ? '<div class="small" role="alert" style="margin-top:8px">Some photos have been pending for at least 2 hours. Check the upload status before leaving the field.</div>' : '') +
-        '<button class="btn tonal" style="margin-top:8px" data-action="retryPhotos"' +
-        (!navigator.onLine || S.retryingPhotos ? ' disabled' : '') + '>' + ic('sync') + ' Retry uploads</button>' : '') +
-      (uploadProblem && !photoKeys.length ? '<div class="small" role="alert" style="margin-top:8px;color:var(--red)">' + ic('error') + ' ' + esc(uploadProblem) + '</div>' : '') +
+      '<div class="upload-panel" aria-label="Photo upload status"><div class="upload-stats">' +
+        '<div class="upload-stat">' + ic('check_circle') + '<div><b>' + confirmed + '</b><small>Confirmed in Drive</small></div></div>' +
+        '<div class="upload-stat">' + (uploadingNow ? SPIN : ic('cloud_off')) + '<div><b>' + photoKeys.length + '</b><small>Pending on this phone</small></div></div>' +
+      '</div>' +
+      (photoKeys.length ? '<div class="upload-state" role="status" aria-live="polite">' + (uploadingNow ? SPIN : ic(uploadProblem ? 'error' : 'hourglass_empty')) +
+        '<span>' + esc(uploadStatus) + (uploadingNow && waitingCount ? ' · ' + waitingCount + ' waiting' : '') + '</span></div>' +
+        (uploadingNow ? '<div class="upload-track" aria-hidden="true"><i></i></div>' : '') +
+        (overdue && !uploadingNow ? '<div class="upload-note">Some photos have waited over 2 hours. Check the connection and retry if needed.</div>' : '') +
+        '<button class="btn tonal" data-action="retryPhotos"' + (S.retryingPhotos ? ' disabled aria-busy="true"' : '') + '>' +
+        (S.retryingPhotos ? SPIN + 'Retrying…' : ic('sync') + ' Retry uploads') + '</button>' :
+        uploadProblem ? '<div class="upload-state" role="alert">' + ic('error') + '<span>' + esc(uploadProblem) + '</span></div>' : '') +
+      '</div>' +
       recoveryInfo +
       (!IS_PHONE ? '<div class="small muted" style="margin-top:8px">' + ic('visibility') + ' Take photos with the app on your phone. Everything else can be updated here.</div>' : '') + '</div>';
 
@@ -2995,7 +3027,13 @@ const PhotoQ = (() => {
 
 const nativeUploadAvailable = () => !!(window.ThesisBackgroundUpload && window.ThesisBackgroundUpload.available);
 function retryableUploadError(message) {
-  return /(?:timeout|timed out|connection (?:abort|reset|closed|interrupted)|software caused connection abort|unable to resolve host|unknown host|network is unreachable|HTTP (?:429|5\d\d)|temporarily unavailable)/i.test(String(message || ''));
+  return /(?:timeout|timed out|connection (?:abort|reset|closed|interrupted)|software caused connection abort|unable to resolve host|unknown host|network is unreachable|HTTP (?:408|429|5\d\d)|temporarily unavailable|returned a web page|<!doctype|converted to JSONObject)/i.test(String(message || ''));
+}
+function uploadRetryMessage(message) {
+  if (!retryableUploadError(message)) return '';
+  return /returned a web page|<!doctype|converted to JSONObject/i.test(String(message))
+    ? 'Tracker server sent a web page. Automatic retry is scheduled.'
+    : 'Connection interrupted. Automatic retry is scheduled.';
 }
 let nativeSessionReady = Promise.resolve(true), nativeSync = null;
 const deletingSamples = new Set();
@@ -3068,9 +3106,20 @@ async function syncNativePhotos() {
     if (!S.user || !await nativeSessionReady) return;
     let changed = false;
     const state = await window.ThesisBackgroundUpload.status();
-    const jobs = await PhotoQ.allStrict();
+    // The IndexedDB copies contain full photos. Read them once per sign-in,
+    // then use the in-memory queue for frequent progress polls.
+    const jobs = S.nativeJobsLoaded ? Object.values(S.queued) : await PhotoQ.allStrict();
+    S.nativeJobsLoaded = true;
     const byKey = new Map(jobs.map(j => [jobKey(j), j]));
     const pending = new Map((state.pending || []).map(p => [p.key, p]));
+    const nativePending = Object.fromEntries([...pending].filter(([key, p]) => p.owner === S.user));
+    const nativeActive = state.active?.owner === S.user ? state.active : null;
+    const nativeRetry = Object.values(nativePending).map(p => uploadRetryMessage(p.error)).find(Boolean) || '';
+    if (JSON.stringify(S.nativePending) !== JSON.stringify(nativePending) ||
+        JSON.stringify(S.nativeActive) !== JSON.stringify(nativeActive) || S.nativeRetry !== nativeRetry) changed = true;
+    S.nativePending = nativePending;
+    S.nativeActive = nativeActive;
+    S.nativeRetry = nativeRetry;
     for (const done of state.completed || []) {
       const job = byKey.get(done.key);
       if ((done.owner && done.owner !== S.user) ||
@@ -3283,7 +3332,7 @@ async function sendReceipt(job, key) {
   if (S.view === 'supplies') renderWhenIdle();
 }
 async function retryPhotos() {
-  if (!S.user || !navigator.onLine || S.retryingPhotos) return;
+  if (!S.user || S.retryingPhotos || (!nativeUploadAvailable() && !navigator.onLine)) return;
   S.retryingPhotos = true;
   renderWhenIdle();
   try {
@@ -3294,7 +3343,7 @@ async function retryPhotos() {
       await window.ThesisBackgroundUpload.retry();
       toast('Drive upload retry requested.', 2500);
     }
-    await load(true);
+    if (navigator.onLine) await load(true);
   } catch (e) {
     toast(e.message || 'Could not retry uploads.', 5000, true);
   } finally {

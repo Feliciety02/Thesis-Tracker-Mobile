@@ -14,6 +14,13 @@ public class PhotoUploadWorkerRetryTest {
         assertTrue(PhotoUploadWorker.retryable(new SocketException("Software caused connection abort")));
         assertTrue(PhotoUploadWorker.retryable(new IOException("Upload server returned HTTP 503")));
         assertTrue(PhotoUploadWorker.retryable(new IOException("Upload server returned HTTP 429")));
+        assertTrue(PhotoUploadWorker.retryable(new IOException("Upload server returned HTTP 408")));
         assertFalse(PhotoUploadWorker.retryable(new IOException("Google Drive access is not authorized")));
+    }
+
+    @Test public void recognizesUnexpectedWebPagesBeforeParsingUploadConfirmations() {
+        assertFalse(PhotoUploadWorker.looksLikeJsonObject("<!doctype html><title>Sign in</title>"));
+        assertFalse(PhotoUploadWorker.looksLikeJsonObject(" \\n <html>Error</html>"));
+        assertTrue(PhotoUploadWorker.looksLikeJsonObject("  { \"ok\": true }"));
     }
 }

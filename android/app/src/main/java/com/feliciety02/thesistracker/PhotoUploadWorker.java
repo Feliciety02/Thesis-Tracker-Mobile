@@ -28,6 +28,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 /** Uploads private queued photos even after the app UI closes. */
@@ -35,6 +36,12 @@ public final class PhotoUploadWorker extends Worker {
     private static final class ConnectionFailure extends IOException {
         ConnectionFailure(IOException cause) {
             super("Connection to the tracker interrupted. Upload will retry automatically.", cause);
+        }
+    }
+
+    private static final class UnexpectedResponse extends IOException {
+        UnexpectedResponse(Throwable cause) {
+            super("Tracker returned a web page instead of upload confirmation. Retrying automatically.", cause);
         }
     }
 
@@ -83,6 +90,7 @@ public final class PhotoUploadWorker extends Worker {
                 // WorkManager stops ordinary workers after about ten minutes. Yield before
                 // starting another large upload so the queue can resume cleanly next run.
                 if (SystemClock.elapsedRealtime() - started > TimeUnit.MINUTES.toMillis(7)) return Result.retry();
+                UploadStore.begin(job);
                 try {
                     UploadStore.clearError(context, job);
                     if (job.optBoolean("firstCapture") && job.optString("date", "").matches("\\d{4}-\\d{2}-\\d{2}")) {
@@ -100,7 +108,7 @@ public final class PhotoUploadWorker extends Worker {
                     if (!response.optBoolean("ok"))
                         throw new IOException(response.optString("error", "Google Drive upload failed"));
                     UploadStore.complete(context, job, response.optJSONObject("data"));
-                } catch (ConnectionFailure error) {
+                } catch (ConnectionFailure | UnexpectedResponse error) {
                     UploadStore.markError(context, job, error.getMessage());
                     return Result.retry();
                 } catch (Exception error) {
@@ -108,6 +116,8 @@ public final class PhotoUploadWorker extends Worker {
                     UploadStore.markError(context, job, error.getMessage() == null ? error.toString() : error.getMessage());
                     if (error instanceof SessionExpiredException) return Result.success(); // sign in again; keep the queue
                     failed.add(job.getString("key"));
+                } finally {
+                    UploadStore.end(job);
                 }
             }
             // Permanent errors stay in the queue for review, without retrying every
@@ -131,6 +141,10 @@ public final class PhotoUploadWorker extends Worker {
             message.contains("connection closed") || message.contains("network is unreachable") ||
             message.contains("unable to resolve host") || message.contains("temporarily unavailable") ||
             message.matches(".*http (?:408|429|5\\d\\d).*");
+    }
+
+    static boolean looksLikeJsonObject(String body) {
+        return body != null && body.trim().startsWith("{");
     }
 
     static JSONObject post(String apiUrl, String token, JSONObject job) throws Exception {
@@ -189,7 +203,10 @@ public final class PhotoUploadWorker extends Worker {
                     byte[] buffer = new byte[16384];
                     int n;
                     while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
-                    return new JSONObject(out.toString(StandardCharsets.UTF_8.name()));
+                    String response = out.toString(StandardCharsets.UTF_8.name());
+                    if (!looksLikeJsonObject(response)) throw new UnexpectedResponse(null);
+                    try { return new JSONObject(response); }
+                    catch (JSONException error) { throw new UnexpectedResponse(error); }
                 }
             } catch (java.net.SocketException | java.net.SocketTimeoutException | java.net.UnknownHostException error) {
                 throw new ConnectionFailure(error);
