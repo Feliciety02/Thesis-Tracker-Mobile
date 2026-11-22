@@ -183,7 +183,7 @@ function parseLink_(formula, value) {
   return null;
 }
 function withLock_(fn) {
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try { return fn(); } finally { lock.releaseLock(); }
 }
@@ -802,14 +802,32 @@ function uploadPhoto(id, angle, b64, date, capturedAt) {
   const sh = sheet_('DA RCPC Samples');
   createSample(id, date);                 // a sample started offline gets its row here if needed
 
-  const folder = sampleFolder_(id, true);                 // <photo folder> / Fe Anne (FA) / FA-001
+  const timestamp = Number(capturedAt);
+  const hasTimestamp = timestamp > 946684800000 && timestamp < Date.now() + 86400000;
+  const captured = hasTimestamp ? new Date(Math.trunc(timestamp)) : new Date();
   const name = imageFileName_(id, angle);
-  const previous = photoFilesFor_(id).filter(f => photoBase_(f.getName()) === name.replace(/\.jpg$/, ''));
-  const file = folder.createFile(Utilities.newBlob(Utilities.base64Decode(String(b64).replace(/^data:image\/\w+;base64,/, '')), 'image/jpeg', name));
-  const captured = Number(capturedAt) > 946684800000 && Number(capturedAt) < Date.now() + 86400000 ? new Date(Number(capturedAt)) : new Date();
 
-  const patch = withLock_(() => {
+  return withLock_(() => {
     const row = sampleRow_(sh, id);
+    if (row < 4) throw new Error('Sample not found: ' + id);
+    const imageRow = row + angle;
+    const dateRange = sh.getRange(imageRow, 3);
+    const linkRange = sh.getRange(imageRow, 14);
+    const savedDate = dateRange.getValue();
+    const savedLink = parseLink_(linkRange.getFormulas()[0][0], linkRange.getValue());
+    const savedTime = savedDate instanceof Date ? savedDate.getTime() : 0;
+    if (hasTimestamp && savedLink && savedTime > captured.getTime()) return samplePhotoPatch_(sh, row, id);
+
+    const folder = sampleFolder_(id, true);
+    // The temporary name lets a retry reuse the Drive file even if the Sheet write was interrupted.
+    const stagingName = name + '.upload-' + captured.getTime();
+    const staged = folder.getFilesByName(stagingName);
+    if (hasTimestamp && savedLink && savedTime === captured.getTime() && !staged.hasNext())
+      return samplePhotoPatch_(sh, row, id);
+
+    const previous = photoFilesFor_(id).filter(f => photoBase_(f.getName()) === name.replace(/\.jpg$/, ''));
+    const file = staged.hasNext() ? staged.next() : folder.createFile(Utilities.newBlob(
+      Utilities.base64Decode(String(b64).replace(/^data:image\/\w+;base64,/, '')), 'image/jpeg', stagingName));
     const cell = sh.getRange(row, 15);
     const angles = String(cell.getValue() || '').split(/[^0-9]+/).filter(String).map(Number);
     if (angles.indexOf(angle) < 0) angles.push(angle);
@@ -820,15 +838,14 @@ function uploadPhoto(id, angle, b64, date, capturedAt) {
     if (!dateCell.getValue()) dateCell.setValue(captured);
     const url = folder.getUrl();
     sh.getRange(row, 14).setFormula('=HYPERLINK("' + url + '","Open photos")');
-    const imageRow = row + angle;
     sh.getRange(imageRow, 7).setValue(name);
-    sh.getRange(imageRow, 3).setValue(captured).setNumberFormat('mmm d, yyyy h:mm am/pm');
-    sh.getRange(imageRow, 14).setFormula('=HYPERLINK("' + file.getUrl() + '","Open image")');
+    dateRange.setValue(captured).setNumberFormat('mmm d, yyyy h:mm am/pm');
+    linkRange.setFormula('=HYPERLINK("' + file.getUrl() + '","Open image")');
+    SpreadsheetApp.flush();
+    previous.forEach(f => { try { f.setTrashed(true); } catch (e) { console.error(e); } });
+    file.setName(name);
     return samplePhotoPatch_(sh, row, id);
   });
-  // A sheet error must leave the former photo intact. Cleanup cannot turn a confirmed upload into a retry.
-  previous.forEach(f => { try { f.setTrashed(true); } catch (e) { console.error(e); } });
-  return patch;
 }
 
 function samplePhotoPatch_(sh, row, id) {

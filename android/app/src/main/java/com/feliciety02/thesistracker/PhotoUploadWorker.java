@@ -9,6 +9,7 @@ import androidx.work.NetworkType;
 import androidx.work.OneTimeWorkRequest;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
+import androidx.work.WorkInfo;
 import androidx.work.WorkManager;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -25,6 +26,12 @@ import org.json.JSONObject;
 
 /** Uploads private queued photos even after the app UI closes. */
 public final class PhotoUploadWorker extends Worker {
+    private static final class ConnectionFailure extends IOException {
+        ConnectionFailure(IOException cause) {
+            super("Connection to the tracker interrupted. Upload will retry automatically.", cause);
+        }
+    }
+
     private static final String WORK_NAME = "thesis-drive-uploads";
 
     public PhotoUploadWorker(@NonNull Context context, @NonNull WorkerParameters params) {
@@ -40,6 +47,15 @@ public final class PhotoUploadWorker extends Worker {
             .setBackoffCriteria(BackoffPolicy.LINEAR, 1, TimeUnit.MINUTES)
             .build();
         WorkManager.getInstance(context).enqueueUniqueWork(WORK_NAME, policy, request);
+    }
+
+    static void retryPending(Context context) throws Exception {
+        if (!UploadStore.hasPending(context)) return;
+        WorkManager manager = WorkManager.getInstance(context);
+        for (WorkInfo work : manager.getWorkInfosForUniqueWork(WORK_NAME).get(5, TimeUnit.SECONDS)) {
+            if (work.getState() == WorkInfo.State.RUNNING) return;
+        }
+        schedule(context, ExistingWorkPolicy.REPLACE);
     }
 
     static void stop(Context context) {
@@ -71,6 +87,9 @@ public final class PhotoUploadWorker extends Worker {
                     if (!response.optBoolean("ok"))
                         throw new IOException(response.optString("error", "Google Drive upload failed"));
                     UploadStore.complete(context, job, response.optJSONObject("data"));
+                } catch (ConnectionFailure error) {
+                    UploadStore.markError(context, job, error.getMessage());
+                    return Result.retry();
                 } catch (Exception error) {
                     UploadStore.markError(context, job, error.getMessage() == null ? error.toString() : error.getMessage());
                     failed.add(job.getString("key"));
@@ -119,13 +138,13 @@ public final class PhotoUploadWorker extends Worker {
             connection.setConnectTimeout(20000);
             connection.setReadTimeout(60000);
             boolean submit = redirects == 0;
-            if (submit) {
-                connection.setRequestMethod("POST");
-                connection.setDoOutput(true);
-                connection.setRequestProperty("Content-Type", "text/plain;charset=utf-8");
-                try (OutputStream out = connection.getOutputStream()) { out.write(body); }
-            }
             try {
+                if (submit) {
+                    connection.setRequestMethod("POST");
+                    connection.setDoOutput(true);
+                    connection.setRequestProperty("Content-Type", "text/plain;charset=utf-8");
+                    try (OutputStream out = connection.getOutputStream()) { out.write(body); }
+                }
                 int code = connection.getResponseCode();
                 if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
                     String location = connection.getHeaderField("Location");
@@ -140,6 +159,8 @@ public final class PhotoUploadWorker extends Worker {
                     while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
                     return new JSONObject(out.toString(StandardCharsets.UTF_8.name()));
                 }
+            } catch (java.net.SocketException | java.net.SocketTimeoutException | java.net.UnknownHostException error) {
+                throw new ConnectionFailure(error);
             } finally {
                 connection.disconnect();
             }

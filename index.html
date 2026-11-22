@@ -1641,6 +1641,10 @@ function queueWrite(fn, args, meta) {
 const SPIN = '<span class="spin-i" aria-hidden="true"></span>';
 // button label while waiting: spinner + short text, and the button can't be tapped twice
 const busyBtn = (busy, label, busyLabel) => busy ? ' disabled aria-busy="true">' + SPIN + busyLabel : '>' + label;
+function photoUploadOverdue(job) {
+  return job && job.kind !== 'receipt' && job.at && Date.now() - job.at >= 2 * 60 * 60 * 1000 &&
+    (job.owner || ownerOf(job.id)) === S.user;
+}
 function updateSyncChip() {
   const writes = outbox();
   const photos = new Set([...Object.keys(S.queued), ...Object.keys(S.waiting), ...Object.keys(S.uploading), ...Object.keys(S.preparing)]);
@@ -1656,9 +1660,11 @@ function updateSyncChip() {
   const el = document.getElementById('syncChip');
   if (!el) return;
   const errors = Object.values(S.uploadErrors).filter(Boolean);
+  const overdue = Object.values(S.queued).some(photoUploadOverdue);
   el.hidden = !n && !errors.length;
-  el.title = blocked ? 'A change needs attention: ' + blocked : errors.length ? errors.length + ' upload error(s): ' + errors[0] : n + ' change' + (n > 1 ? 's' : '') + ' waiting to sync';
-  if (blocked || errors.length) el.innerHTML = ic('error') + ' ' + (n || errors.length) + '<span class="lng"> need attention</span>';
+  el.title = blocked ? 'A change needs attention: ' + blocked : overdue ? 'Sample photos have been pending for at least 2 hours. Open Samples for upload status.'
+    : errors.length ? errors.length + ' upload error(s): ' + errors[0] : n + ' change' + (n > 1 ? 's' : '') + ' waiting to sync';
+  if (blocked || errors.length || overdue) el.innerHTML = ic('error') + ' ' + (n || errors.length) + '<span class="lng"> need attention</span>';
   else if (navigator.onLine && (flushing || Object.keys(S.uploading).length)) el.innerHTML = SPIN + '<span class="lng">Syncing </span>' + n;
   else el.innerHTML = '' + ic('hourglass_empty') + ' ' + n + '<span class="lng"> to sync</span>';
 }
@@ -2342,11 +2348,20 @@ function vSamples() {
   if (nInvalid) tabs.push(['invalid', 'Invalid', nInvalid]);
   tabs.push(['all', 'All', pool.length]);
   const stage = tabs.some(t => t[0] === S.smpStage) ? S.smpStage : 'todo';
-  const lp = leafProgress(), qn = Object.keys(S.queued).filter(k => !k.startsWith('rcpt_')).length;
-  const errors = Object.values(S.uploadErrors).filter(Boolean);
+  const lp = leafProgress();
+  const pending = new Set(Object.keys(S.queued).concat(Object.keys(S.waiting), Object.keys(S.uploading)));
+  const photoKeys = [...pending].filter(key => !key.startsWith('rcpt_') &&
+    (S.queued[key]?.owner || ownerOf(key.split('_')[0])) === me);
+  const confirmed = pool.reduce((count, sample) => count + (sample.images || []).filter(image => image.url).length, 0);
+  const overdue = photoKeys.some(key => photoUploadOverdue(S.queued[key]));
+  const errors = photoKeys.map(key => S.uploadErrors[key]).filter(Boolean);
   const uploadProblem = S.serverPhotoLimit && S.serverPhotoLimit < MAX_ANGLES
     ? 'The live tracker server accepts only ' + S.serverPhotoLimit + ' photos per leaf. Update and redeploy the Apps Script for all five photos.'
-    : errors.length ? 'Drive upload error: ' + errors[0] : '';
+    : errors.length ? errors[0] : '';
+  const uploadStatus = !navigator.onLine ? 'Waiting for connection'
+    : errors.some(error => /connection|timed out|resolve host/i.test(error)) ? 'Connection interrupted. Retrying automatically.'
+    : errors.some(error => /sign in/i.test(error)) ? 'Sign in again to resume uploads.'
+    : uploadProblem || 'Waiting for Drive confirmation';
   const recovery = S.galleryRecovery;
   let recoveryInfo = '';
   if (nativeUploadAvailable() && window.ThesisBackgroundUpload.scanNamedPhotos) {
@@ -2365,7 +2380,7 @@ function vSamples() {
         r.access === 'denied' ? 'Allow Gallery access to recover photos after reinstall.' :
         r.access === 'partial' ? 'Only selected photos are visible. Allow all photos to recover the rest.' :
         r.recovered ? 'Restored from Gallery to the upload queue.' :
-        r.access === 'full' ? 'No missing sample photos found.' : 'Available after sign-in.') +
+        r.access === 'full' ? 'No missing sample photos found.' : S.galleryRecoveryFresh ? 'Scan for saved photos missing from the upload queue.' : 'Available after the tracker connects.') +
       (r.unmatched ? ' ' + r.unmatched + ' named photo' + (r.unmatched === 1 ? '' : 's') + ' did not match a current sample and stayed in Gallery.' : '') +
       (hasErr ? ' Error: ' + esc(r.errors[0]) : '');
     const scanLabel = needsAccess ? ic('photo_library') + ' ' + (r.access === 'partial' ? 'Allow all &amp; rescan' : 'Allow access') : ic('sync') + ' Scan Gallery again';
@@ -2389,8 +2404,13 @@ function vSamples() {
       '<div class="' + (pool.some(x => freshness(x).st === 'today') ? 'bad' : '') + '"><b>' + pool.filter(x => ['today', 'tomorrow'].indexOf(freshness(x).st) > -1).length + '</b><span>to send</span></div>' +
       '<div><b>' + lp.done + (lp.goal ? '<small>/' + lp.goal + '</small>' : '') + '</b><span>team leaves</span></div></div>' +
       (lp.goal ? '<div class="bar"><i style="width:' + lp.p + '%"></i></div>' : '') +
-      (qn ? '<div class="small" style="margin-top:8px">' + ic('cloud_off') + ' ' + qn + ' photo' + (qn > 1 ? 's' : '') + ' saved on this phone, waiting for Drive confirmation</div>' : '') +
-      (uploadProblem ? '<div class="small" role="alert" style="margin-top:8px;color:var(--red)">' + ic('error') + ' ' + esc(uploadProblem) + '</div>' : '') +
+      '<div class="small" style="margin-top:8px">' + ic('check_circle') + ' ' + confirmed + ' confirmed in Drive</div>' +
+      (photoKeys.length ? '<div class="small" style="margin-top:8px" role="status">' + ic('cloud_off') + ' ' +
+        photoKeys.length + ' photo' + (photoKeys.length === 1 ? '' : 's') + ' pending on this phone · ' + esc(uploadStatus) + '</div>' +
+        (overdue ? '<div class="small" role="alert" style="margin-top:8px">Some photos have been pending for at least 2 hours. Check the upload status before leaving the field.</div>' : '') +
+        '<button class="btn tonal" style="margin-top:8px" data-action="retryPhotos"' +
+        (!navigator.onLine || S.retryingPhotos ? ' disabled' : '') + '>' + ic('sync') + ' Retry uploads</button>' : '') +
+      (uploadProblem && !photoKeys.length ? '<div class="small" role="alert" style="margin-top:8px;color:var(--red)">' + ic('error') + ' ' + esc(uploadProblem) + '</div>' : '') +
       recoveryInfo +
       (!IS_PHONE ? '<div class="small muted" style="margin-top:8px">' + ic('visibility') + ' Take photos with the app on your phone. Everything else can be updated here.</div>' : '') + '</div>';
 
@@ -3236,6 +3256,27 @@ async function sendReceipt(job, key) {
   updateSyncChip();
   if (S.view === 'supplies') renderWhenIdle();
 }
+async function retryPhotos() {
+  if (!S.user || !navigator.onLine || S.retryingPhotos) return;
+  S.retryingPhotos = true;
+  renderWhenIdle();
+  try {
+    await flushOutbox();
+    await flushPhotos();
+    if (nativeUploadAvailable()) {
+      if (!await nativeSessionReady) throw new Error('Sign in again to resume uploads.');
+      await window.ThesisBackgroundUpload.retry();
+      toast('Drive upload retry requested.', 2500);
+    }
+    await load(true);
+  } catch (e) {
+    toast(e.message || 'Could not retry uploads.', 5000, true);
+  } finally {
+    S.retryingPhotos = false;
+    if (S.view === 'samples') renderWhenIdle();
+  }
+}
+
 async function flushPhotos() {
   if (!S.user) return;
   if (nativeUploadAvailable()) return syncNativePhotos();
@@ -3760,6 +3801,7 @@ document.addEventListener('click', e => {
   }
   if (a === 'smpStage') { S.smpStage = v; render(); return; }
   if (a === 'showCheckDates') { S.view = 'samples'; S.sampleFilter = 'All'; S.smpStage = 'unrecorded'; render(); window.scrollTo(0, 0); return; }
+  if (a === 'retryPhotos') { retryPhotos(); return; }
   if (a === 'recoverGallery') { recoverGalleryPhotos(true); return; }
   if (a === 'restoreGallerySamples') { restoreGallerySamples(); return; }
   if (a === 'smpBag') { const x = sampleById(el.dataset.id); if (x) markPacked(x.id); return; }
@@ -4190,7 +4232,7 @@ function checkLive() {
       (S.refreshPending && isTyping())) return;
   S.checking = true;
   call('getVersion').then(v => {
-    if (v && v !== S.data.version) return load(true);
+    if (!S.galleryRecoveryFresh || (v && v !== S.data.version)) return load(true);
     setOffline(false);
   }).catch(e => { if (/Unknown action/.test(e.message || '')) S.noLive = true; }).finally(() => { S.checking = false; });
 }
@@ -4240,7 +4282,10 @@ PhotoQ.galleryKeys().then(keys => {
   });
   if (S.data && S.view === 'samples') renderWhenIdle();
 }).catch(() => {});
-setInterval(() => { if (navigator.onLine && (outbox().length || Object.keys(S.queued).length)) flushOutbox().then(flushPhotos); }, 45000);
+setInterval(() => {
+  updateSyncChip();
+  if (navigator.onLine && (outbox().length || Object.keys(S.queued).length)) flushOutbox().then(flushPhotos);
+}, 45000);
 setInterval(() => { if (nativeUploadAvailable() && S.user && document.visibilityState === 'visible') flushPhotos(); }, 5000);
 // ask the browser to keep offline photos/changes even when storage is tight
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});

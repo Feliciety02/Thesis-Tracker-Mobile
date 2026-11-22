@@ -81,6 +81,7 @@ window.ThesisBackgroundUpload = {
   clearSession: () => BackgroundUpload.clearSession(),
   enqueue: job => BackgroundUpload.enqueue({ job }),
   status: () => BackgroundUpload.status(),
+  retry: () => BackgroundUpload.retry(),
   acknowledge: (key, at) => BackgroundUpload.acknowledge({ key, at }),
   cancel: key => BackgroundUpload.cancel({ key }),
   saveNamedPhoto: (name, b64) => BackgroundUpload.saveNamedPhoto({ name, b64 }),

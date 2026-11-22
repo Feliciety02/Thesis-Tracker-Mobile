@@ -152,8 +152,29 @@ try {
     });
     assert.match(await page.locator('#syncChip').innerText(), /1/);
 
+    await page.evaluate(() => {
+      const at = Date.now() - 3 * 60 * 60 * 1000;
+      S.queued = { 'FA-900_01': { id: 'FA-900', angle: 1, at, owner: S.user } };
+      S.waiting = {};
+      S.uploading = {};
+      S.uploadErrors = { 'FA-900_01': 'Software caused connection abort' };
+      S.data.samples[0].images = [{ angle: 1, url: 'https://drive.google.com/file/test' }];
+      nativeSessionReady = Promise.resolve(true);
+      window.ThesisBackgroundUpload = {
+        available: true,
+        status: async () => ({ pending: [], completed: [] }),
+        retry: async () => { window.retryRequested = true; },
+      };
+      render();
+    });
+    assert.match(await page.locator('.smpsum').innerText(), /1 confirmed in Drive/);
+    assert.match(await page.locator('.smpsum').innerText(), /1 photo pending.*Retrying automatically/);
+    assert.match(await page.locator('.smpsum [role="alert"]').innerText(), /at least 2 hours/);
+    await page.getByRole('button', { name: 'Retry uploads' }).tap();
+    await page.waitForFunction(() => window.retryRequested && !S.retryingPhotos);
+
     assert.deepEqual(errors, []);
-    console.log('Touch browser smoke passed: editors, hand-over backfill, and photo sync count');
+    console.log('Touch browser smoke passed: editors, hand-over backfill, and upload status and retry');
   } finally {
     await browser.close();
   }

@@ -130,6 +130,14 @@ public class BackgroundUploadPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void retry(PluginCall call) {
+        try {
+            PhotoUploadWorker.retryPending(getContext());
+            call.resolve();
+        } catch (Exception e) { call.reject("Could not retry pending uploads", e); }
+    }
+
+    @PluginMethod
     public void status(PluginCall call) {
         try { call.resolve(JSObject.fromJSONObject(UploadStore.status(getContext()))); }
         catch (Exception e) { call.reject("Cannot read upload status", e); }

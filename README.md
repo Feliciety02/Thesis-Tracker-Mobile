@@ -85,6 +85,15 @@ The APK contains the current Android interface and background uploader. Changes 
 
 For each future Android release, run `npm test` and `npm run test:touch` (the touch test uses Microsoft Edge on Windows), set the new version in `package.json` and `android/app/build.gradle`, save the signed APK and checksum under `docs/releases/<version>/`, then run `npm run release:default`. This verifies the release checksum and copies both the versioned APK and the default APK into the project root.
 
+### Android photo upload release check
+
+Use a test account and test samples on a physical Android phone.
+
+1. With the current signed APK installed, turn off connectivity and capture several sample photos. Confirm the pending count and verify the phone copies in Gallery.
+2. Restart the phone while offline. Install the new signed APK over the existing app and verify that the same photos are still pending.
+3. Connect to Wi-Fi and tap **Retry uploads**. Switch networks during an upload, then restore a working connection. Check that uploads resume and that the pending count drops to zero as Drive confirmations arrive.
+4. Open each image link. Check that Drive has one final file for each angle and that the newest retake is the one linked in the Sheet. Verify the same result after reopening the app.
+
 ## Explore the repository
 
 | Area | Start here | What you will find |

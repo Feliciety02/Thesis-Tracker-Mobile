@@ -336,3 +336,53 @@ test('batch submission accepts other members’ collected leaves without creatin
   vm.runInContext("CURRENT_USER = 'Rho'", app);
   assert.throws(() => app.submitSamples(['FA-001'], iso(today)), /Fe Anne handles/);
 });
+
+
+test('sample upload retries reuse the original file and preserve a newer retake', () => {
+  const sh = fakeSheet();
+  const app = contextFor(sh);
+  const files = [];
+  app.SpreadsheetApp.flush = () => {};
+  app.Utilities = { base64Decode: value => value, newBlob: (_bytes, _type, name) => name };
+  app.photoFilesFor_ = () => files.filter(file => !file.trashed);
+  app.sampleFolder_ = () => ({
+    getUrl: () => 'https://drive.google.com/folder/test',
+    getFilesByName(name) {
+      const matches = files.filter(file => !file.trashed && file.name === name);
+      return { hasNext: () => matches.length > 0, next: () => matches.shift() };
+    },
+    createFile(name) {
+      const url = 'https://drive.google.com/file/' + files.length;
+      const file = {
+        name, trashed: false, getUrl: () => url, getName() { return this.name; },
+        setName(value) { this.name = value; }, setTrashed(value) { this.trashed = value; },
+      };
+      files.push(file);
+      return file;
+    },
+  });
+  const first = Date.parse('2026-11-09T01:05:00.123Z');
+  const upload = at => app.uploadPhoto('FA-001', 1, 'a'.repeat(100), '', at);
+  const getRange = sh.getRange;
+  let interrupt = true;
+  sh.getRange = (...args) => {
+    const range = getRange(...args);
+    if (args[0] === 5 && args[1] === 14 && interrupt) {
+      range.setFormula = () => { interrupt = false; throw new Error('Sheet write interrupted'); };
+    }
+    return range;
+  };
+
+  assert.throws(() => upload(first), /Sheet write interrupted/);
+  assert.equal(files.length, 1);
+  const saved = upload(first).images[0];
+  assert.equal(upload(first).images[0].url, saved.url);
+  assert.equal(files.length, 1);
+  assert.equal(files[0].name, 'FA-001_01.jpg');
+
+  const retake = upload(first + 1000).images[0];
+  assert.equal(upload(first).images[0].url, retake.url);
+  assert.equal(retake.capturedAt, first + 1000);
+  assert.equal(files.length, 2);
+  assert.deepEqual(files.filter(file => !file.trashed).map(file => file.getUrl()), [retake.url]);
+});
