@@ -22,7 +22,7 @@
 let CURRENT_USER = '';   // set per request; used to fill "Done by"
 
 /** Opening the API link in a browser shows a friendly page that points to the app. */
-const APP_URL = 'https://feliciety02.github.io/ThesisTracker/';
+const APP_URL = 'https://feliciety02.github.io/Thesis-Tracker-Mobile/';
 function doGet() {
   const html =
     '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">' +
@@ -743,15 +743,25 @@ function legacyPhotoFolder_() {
   try { const f = DriveApp.getFolderById(id); return f.isTrashed() ? null : f; } catch (e) { return null; }
 }
 /** Live (not trashed) photo files for a leaf: its folder first, then any left in the old flat folder. */
-function photoFilesFor_(id) {
+function photoFilesFor_(id, angle) {
   const out = [];
-  const add = f => { if (!f.isTrashed() && f.getName().toUpperCase().indexOf(id + '_') === 0) out.push(f); };
+  const base = angle ? id + '_' + ('0' + angle).slice(-2) : '';
+  const add = f => { if (!f.isTrashed() && f.getName().toUpperCase().indexOf(id + '_') === 0 &&
+    (!base || photoBase_(f.getName()) === base)) out.push(f); };
   try { const sf = sampleFolder_(id, false); if (sf) { const it = sf.getFiles(); while (it.hasNext()) add(it.next()); } } catch (e) {}
   oldPhotoRoots_().forEach(r => { try {
     const mf = childFolder_(r, memberFolderName_(id), false), sf = mf && childFolder_(mf, id, false);
     if (sf) { const it = sf.getFiles(); while (it.hasNext()) add(it.next()); }
   } catch (e) {} });
-  try { const lf = legacyPhotoFolder_(); if (lf) { const it = lf.getFiles(); while (it.hasNext()) add(it.next()); } } catch (e) {}
+  try { const lf = legacyPhotoFolder_(); if (lf) {
+    if (base) {
+      // A large legacy flat folder must not be scanned for every queued upload.
+      ['jpg', 'jpeg', 'png', 'heic', 'heif', 'webp'].forEach(ext => {
+        const it = lf.getFilesByName(base + '.' + ext);
+        while (it.hasNext()) add(it.next());
+      });
+    } else { const it = lf.getFiles(); while (it.hasNext()) add(it.next()); }
+  } } catch (e) {}
   return out;
 }
 /** Moves photos from older locations (the flat folder and the old photo folder) into
@@ -825,7 +835,7 @@ function uploadPhoto(id, angle, b64, date, capturedAt) {
     if (hasTimestamp && savedLink && savedTime === captured.getTime() && !staged.hasNext())
       return samplePhotoPatch_(sh, row, id);
 
-    const previous = photoFilesFor_(id).filter(f => photoBase_(f.getName()) === name.replace(/\.jpg$/, ''));
+    const previous = photoFilesFor_(id, angle);
     const file = staged.hasNext() ? staged.next() : folder.createFile(Utilities.newBlob(
       Utilities.base64Decode(String(b64).replace(/^data:image\/\w+;base64,/, '')), 'image/jpeg', stagingName));
     const cell = sh.getRange(row, 15);
@@ -842,8 +852,8 @@ function uploadPhoto(id, angle, b64, date, capturedAt) {
     dateRange.setValue(captured).setNumberFormat('mmm d, yyyy h:mm am/pm');
     linkRange.setFormula('=HYPERLINK("' + file.getUrl() + '","Open image")');
     SpreadsheetApp.flush();
-    previous.forEach(f => { try { f.setTrashed(true); } catch (e) { console.error(e); } });
     file.setName(name);
+    previous.forEach(f => { try { f.setTrashed(true); } catch (e) { console.error(e); } });
     return samplePhotoPatch_(sh, row, id);
   });
 }

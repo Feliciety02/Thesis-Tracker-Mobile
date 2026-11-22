@@ -99,9 +99,8 @@ public class BackgroundUploadPlugin extends Plugin {
             .edit().putString("token", token).putString("url", url).putString("owner", owner).commit();
         if (!saved) { call.reject("Cannot save upload session"); return; }
         try {
-            // Opening an updated app should retry its durable queue now, even if an older
-            // worker is waiting in exponential backoff after a server-side failure.
-            if (UploadStore.hasPending(getContext())) PhotoUploadWorker.schedule(getContext(), ExistingWorkPolicy.REPLACE);
+            // Keep an upload already in progress; replacing it aborts its connection.
+            if (UploadStore.hasPending(getContext())) PhotoUploadWorker.schedule(getContext(), ExistingWorkPolicy.KEEP);
             call.resolve();
         } catch (Exception e) { call.reject("Cannot schedule pending uploads", e); }
     }

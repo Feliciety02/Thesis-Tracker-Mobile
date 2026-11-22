@@ -2,6 +2,7 @@ node_modules/
 dist/
 artifacts/
 android/.gradle/
+android/.kotlin/
 android/.idea/
 android/build/
 android/app/build/

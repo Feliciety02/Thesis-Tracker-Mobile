@@ -128,6 +128,16 @@ final class UploadStore {
         }
     }
 
+    static void clearError(Context context, JSONObject job) throws IOException, JSONException {
+        synchronized (LOCK) {
+            File pending = file(context, "pending", job.getString("key"));
+            JSONObject current = read(pending);
+            if (current == null || current.optLong("at") != job.getLong("at") || !current.has("error")) return;
+            current.remove("error");
+            write(pending, current);
+        }
+    }
+
     static JSONObject status(Context context) throws IOException, JSONException {
         synchronized (LOCK) {
             JSONArray pending = new JSONArray(), done = new JSONArray();

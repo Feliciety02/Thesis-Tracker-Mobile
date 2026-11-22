@@ -14,7 +14,7 @@
 <link rel="icon" href="icons/icon-48.png" type="image/png" sizes="48x48">
 <meta property="og:title" content="Banana Thesis Tracker">
 <meta property="og:description" content="Tasks, DA RCPC samples, photos and expenses for the EfficientNetB0 banana leaf disease thesis.">
-<meta property="og:image" content="https://feliciety02.github.io/ThesisTracker/icons/og-image.png">
+<meta property="og:image" content="https://feliciety02.github.io/Thesis-Tracker-Mobile/icons/og-image.png">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -1118,29 +1118,42 @@ async function call(fn, ...args) {
     return out;
   }
   if (!navigator.onLine) { const err = new Error("You're offline."); err.network = true; throw err; }
-  let res;
+  const controller = new AbortController();
+  const authRequest = /^auth(?:Start|Forgot|Verify|Login)$/.test(fn);
+  const writeRequest = !authRequest && !/^(?:getData|getVersion|listPhotos)$/.test(fn);
+  const timeout = setTimeout(() => controller.abort(), authRequest || fn === 'getData' ? 60000 :
+    /^(?:uploadPhoto|uploadReceipt)$/.test(fn) ? 180000 : 120000);
+  let j;
   try {
-    res = await fetch(API_URL, {
+    const res = await fetch(API_URL, {
       method: 'POST', redirect: 'follow',
+      signal: controller.signal,
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ token: store.get(TOKEN_STORE) || '', fn, args }),
     });
+    try { j = await res.json(); }
+    catch (e) {
+      if (controller.signal.aborted) throw e;
+      const err = new Error('The tracker returned an invalid response. Check the Apps Script deployment and try again.');
+      err.network = err.server = true;
+      throw err;
+    }
   } catch (e) {
-    const err = new Error(navigator.onLine
-      ? "The tracker server has a setup error (your internet is fine). In Apps Script: keep only ThesisTracker.gs and WebApp.gs, deploy a New version with access \"Anyone\"."
-      : "You're offline.");
-    err.network = true; err.server = navigator.onLine;     // writes still wait safely in the outbox
+    if (e.network) throw e;
+    const retryNote = writeRequest ? ' Your change is saved on this phone and will retry.' : ' Try again when the connection is stable.';
+    const err = new Error(!navigator.onLine ? "You're offline." : controller.signal.aborted
+      ? authRequest ? 'Sign-in took too long. Your password was not rejected. Check your connection and try again.'
+        : 'The tracker took too long to respond.' + retryNote
+      : authRequest ? 'Could not reach the sign-in service. Check your connection and try again; your password was not rejected.'
+        : 'Could not reach the tracker.' + retryNote);
+    err.network = true; err.server = navigator.onLine;
     throw err;
-  }
-  let j;
-  try { j = await res.json(); }
-  catch (e) {
-    const err = new Error('The tracker server has a setup error (your internet is fine). In Apps Script: keep only ThesisTracker.gs and WebApp.gs, deploy a New version with access "Anyone".');
-    err.network = err.server = true; throw err;           // not a refusal: the change stays in the outbox
+  } finally {
+    clearTimeout(timeout);
   }
   if (!j.ok) {
     const err = new Error(j.error || 'Request failed'); err.auth = !!j.auth;
-    if (/lock timeout|timed out|too many times|maximum execution|temporarily|try again/i.test(err.message)) err.network = err.server = true;   // Google was busy: retry later
+    if (/lock timeout|timed out|maximum execution|temporarily unavailable|service unavailable|try again later/i.test(err.message)) err.network = err.server = true;   // Google was busy: retry later
     throw err;
   }
   return j.data;
@@ -1442,6 +1455,7 @@ function toast(msg, ms, err) {
 /* =========================================================
    Load + save
    ========================================================= */
+let initialLoadRetries = 0;
 function load(quiet) {
   const writeSeq = S.localWriteSeq || 0;
   return flushOutbox().then(() => {
@@ -1463,6 +1477,7 @@ function load(quiet) {
       if (x.date) call('createSample', x.id, x.date).then(r => { const y = sampleById(x.id); if (y && r) { y.row = r.row; persist(); } }).catch(() => {});
     });
     S.refreshPending = false;
+    initialLoadRetries = 0;
     S.data = d;
     S.serverCollectionPlan = 'collectionDate' in (d.settings || {});
     S.serverPhotoLimit = Array.isArray(d.photoAngles) ? d.photoAngles.length : 0;
@@ -1483,16 +1498,21 @@ function load(quiet) {
       renderWhenIdle();
       return;
     }
-    document.getElementById('app').innerHTML = '<div class="empty">Could not load the tracker: ' + esc(e && e.message || e) + '</div>';
+    if (e.network && navigator.onLine && initialLoadRetries++ < 1) {
+      document.getElementById('app').innerHTML = '<div class="loading"><div class="spinner"></div>Connection interrupted. Trying again…</div>';
+      return new Promise(resolve => setTimeout(() => resolve(load(quiet)), 3000));
+    }
+    document.getElementById('app').innerHTML = '<div class="empty">Could not load the tracker: ' + esc(e && e.message || e) +
+      '<p><button class="btn" data-action="retryLoad">Try again</button></p></div>';
   });
 }
 function setOffline(on, at) {
   const el = document.getElementById('offline');
   el.hidden = !on;
-  if (on) el.innerHTML = ic('cloud_off') + 'Offline · saving on this phone';
+  if (on) el.innerHTML = ic('cloud_off') + (navigator.onLine ? 'Connection issue · saving on this phone' : 'Offline · saving on this phone');
   updateSyncChip();
   const info = document.getElementById('syncInfo');
-  if (info) info.textContent = DEMO ? 'Demo data' : on ? 'Offline copy' : '● Live · synced ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  if (info) info.textContent = DEMO ? 'Demo data' : on ? 'Saved phone copy' : '● Live · synced ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 /* ---------- sign-in: email → (code + new password the first time) or password ---------- */
 function lock(msg) {               // show sign-in (also used when the server says the login is no longer valid)
@@ -1571,6 +1591,7 @@ function finishSignIn(r) {
   store.set(TOKEN_STORE, r.token);
   store.set(ACCT_STORE, JSON.stringify({ user: r.user, email: r.email, name: r.name }));
   S.auth = null;
+  initialLoadRetries = 0;
   signIn(r.user);
   S.sampleFilter = null;
   toast('Hi ' + r.user, 1500);
@@ -2380,7 +2401,9 @@ function vSamples() {
         r.access === 'denied' ? 'Allow Gallery access to recover photos after reinstall.' :
         r.access === 'partial' ? 'Only selected photos are visible. Allow all photos to recover the rest.' :
         r.recovered ? 'Restored from Gallery to the upload queue.' :
-        r.access === 'full' ? 'No missing sample photos found.' : S.galleryRecoveryFresh ? 'Scan for saved photos missing from the upload queue.' : 'Available after the tracker connects.') +
+        r.access === 'full' ? 'No missing sample photos found.' :
+        !S.galleryRecoveryFresh ? 'Connect to the tracker to match Gallery photos with current samples.' :
+        'Tap Scan Gallery again to check for photos waiting to be recovered.') +
       (r.unmatched ? ' ' + r.unmatched + ' named photo' + (r.unmatched === 1 ? '' : 's') + ' did not match a current sample and stayed in Gallery.' : '') +
       (hasErr ? ' Error: ' + esc(r.errors[0]) : '');
     const scanLabel = needsAccess ? ic('photo_library') + ' ' + (r.access === 'partial' ? 'Allow all &amp; rescan' : 'Allow access') : ic('sync') + ' Scan Gallery again';
@@ -2971,6 +2994,9 @@ const PhotoQ = (() => {
 })();
 
 const nativeUploadAvailable = () => !!(window.ThesisBackgroundUpload && window.ThesisBackgroundUpload.available);
+function retryableUploadError(message) {
+  return /(?:timeout|timed out|connection (?:abort|reset|closed|interrupted)|software caused connection abort|unable to resolve host|unknown host|network is unreachable|HTTP (?:429|5\d\d)|temporarily unavailable)/i.test(String(message || ''));
+}
 let nativeSessionReady = Promise.resolve(true), nativeSync = null;
 const deletingSamples = new Set();
 const deletingSupplies = new Set();
@@ -3070,7 +3096,7 @@ async function syncNativePhotos() {
       if (job.kind === 'receipt' && supplyDeletePending(job.row)) continue;
       if (!S.queued[key]) changed = true;
       S.queued[key] = job;
-      const error = prior && prior.error || '';
+      const error = prior && !retryableUploadError(prior.error) ? prior.error || '' : '';
       if ((S.uploadErrors[key] || '') !== error) changed = true;
       if (error) S.uploadErrors[key] = error;
       else delete S.uploadErrors[key];
@@ -3744,6 +3770,7 @@ document.addEventListener('click', e => {
   if (!el) return;
   if (el.dataset.view) { S.view = el.dataset.view; S.addTaskOpen = S.addExpOpen = false; render(); window.scrollTo(0, 0); return; }
   const a = el.dataset.action, v = el.dataset.v;
+  if (a === 'retryLoad') { initialLoadRetries = 0; load(false); return; }
   if (a === 'toastClose') { hideToast(); return; }
   if (a === 'retryWrite') {
     const pending = outbox();
@@ -4244,7 +4271,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && nativeUploadAvailable()) flushPhotos();
   if (S.data && document.visibilityState === 'visible' && !busy() && Date.now() - lastFocusLoad > 5000) { lastFocusLoad = Date.now(); if (S.noLive) { if (!isTyping()) load(true); } else checkLive(); }
 });
-window.addEventListener('online', () => { if (S.data) flushOutbox().then(flushPhotos).then(() => load(true)); });
+window.addEventListener('online', () => { if (S.data) flushOutbox().then(flushPhotos).then(() => load(true)); else if (S.user) { initialLoadRetries = 0; load(false); } });
 window.addEventListener('offline', () => { if (S.data) setOffline(true, (cached() || {}).at); });
 
 /* install as an app */

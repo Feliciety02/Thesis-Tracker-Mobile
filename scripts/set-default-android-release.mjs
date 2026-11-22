@@ -20,6 +20,7 @@ assert.match(gradle, new RegExp(`versionName\\s+"${version.replaceAll('.', '\\.'
   'Android versionName must match the release');
 
 const filename = `Banana-Thesis-Tracker-Android-${version}.apk`;
+const latestApkUrl = 'https://raw.githubusercontent.com/Feliciety02/Thesis-Tracker-Mobile/main/Banana-Thesis-Tracker-Android.apk';
 const releaseDir = join(root, 'docs', 'releases', version);
 const apk = join(releaseDir, filename);
 const digest = createHash('sha256').update(await readFile(apk)).digest('hex');
@@ -32,8 +33,11 @@ function replaceOne(pattern, replacement) {
   readme = readme.replace(pattern, replacement);
 }
 replaceOne(/<code>Android \d+\.\d+\.\d+<\/code>/g, `<code>Android ${version}</code>`);
+replaceOne(/Signed Android \d+\.\d+\.\d+ APK/g, `Signed Android ${version} APK`);
+replaceOne(/<a href="[^"]+"><img src="docs\/readme\/apk-button\.svg"/g,
+  `<a href="${latestApkUrl}"><img src="docs/readme/apk-button.svg"`);
 replaceOne(/\[Banana Thesis Tracker \d+\.\d+\.\d+ APK\]\([^)]+\)/g,
-  `[Banana Thesis Tracker ${version} APK](Banana-Thesis-Tracker-Android.apk)`);
+  `[Banana Thesis Tracker ${version} APK](${latestApkUrl})`);
 replaceOne(/\[signed \d+\.\d+\.\d+ team APK\]\([^)]+\)/g,
   `[signed ${version} team APK](Banana-Thesis-Tracker-Android.apk)`);
 replaceOne(/\[SHA-256 checksum\]\([^)]+\)/g,

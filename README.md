@@ -6,12 +6,12 @@
 
 <p align="center">A fieldwork app for banana leaf samples, team tasks, panel revisions, and thesis expenses. Capture on Android, continue offline, and sync with the team's Google Sheet and Drive.</p>
 
-<p align="center"><code>Android 1.0.26</code> &nbsp; <code>Web / PWA</code> &nbsp; <code>Capacitor</code> &nbsp; <code>Google Sheets + Drive</code></p>
+<p align="center"><code>Android 1.0.28</code> &nbsp; <code>Web / PWA</code> &nbsp; <code>Capacitor</code> &nbsp; <code>Google Sheets + Drive</code></p>
 
 <p align="center">
-  <a href="#get-the-android-app"><img src="docs/readme/apk-button.svg" width="216" alt="Get the APK"></a>
+  <a href="https://raw.githubusercontent.com/Feliciety02/Thesis-Tracker-Mobile/main/Banana-Thesis-Tracker-Android.apk"><img src="docs/readme/apk-button.svg" width="216" alt="Download the latest Android APK"></a>
   <br>
-  <sub>Signed Android 1.0.26 APK with a SHA-256 checksum. Install over an existing team release.</sub>
+  <sub>Signed Android 1.0.28 APK with a SHA-256 checksum. Install over an existing team release.</sub>
 </p>
 
 <p align="center">
@@ -75,13 +75,13 @@ flowchart TD
     class D,E,F,I shared
 ```
 
-The Android app stores a private upload copy until Drive confirms each photo. A named Gallery copy can help recover photos after reinstall when Gallery access is granted. Android schedules background photo retries; task and expense changes use the app's ordered sync queue when it next opens with a connection.
+The Android app stores a private upload copy until Drive confirms each photo. A named Gallery copy can help recover photos after reinstall when Gallery access is granted. Android schedules background photo retries; task and expense changes use the app's ordered sync queue when it next opens with a connection. A timeout or connection abort leaves the photo queued and retries automatically. The Samples page shows a red upload error only when an upload needs attention.
 
 ## Get the Android app
 
-Download the signed [Banana Thesis Tracker 1.0.26 APK](Banana-Thesis-Tracker-Android.apk). Its [SHA-256 checksum](Banana-Thesis-Tracker-Android.apk.sha256) is included. **Install it over an existing team release; do not uninstall first** if photos are waiting to upload. The Chrome-installed web app has separate phone storage from the native Android app.
+Download the signed [Banana Thesis Tracker 1.0.28 APK](https://raw.githubusercontent.com/Feliciety02/Thesis-Tracker-Mobile/main/Banana-Thesis-Tracker-Android.apk). The green button above uses this same direct download link, which follows the maintained latest APK filename on `main`. Its [SHA-256 checksum](Banana-Thesis-Tracker-Android.apk.sha256) is included. **Install it over an existing team release; do not uninstall first** if photos are waiting to upload. The Chrome-installed web app has separate phone storage from the native Android app.
 
-The APK contains the current Android interface and background uploader. Changes to the shared Apps Script service take effect only after the deployment owner publishes a [new web-app version](#update-the-apps-script-copy-and-paste).
+The APK contains the current Android interface and background uploader. The upload speed and app URL fixes in `apps-script/WebApp.gs` take effect only after the deployment owner publishes a [new web-app version](#update-the-apps-script-copy-and-paste).
 
 For each future Android release, run `npm test` and `npm run test:touch` (the touch test uses Microsoft Edge on Windows), set the new version in `package.json` and `android/app/build.gradle`, save the signed APK and checksum under `docs/releases/<version>/`, then run `npm run release:default`. This verifies the release checksum and copies both the versioned APK and the default APK into the project root.
 
@@ -110,8 +110,8 @@ Use a test account and test samples on a physical Android phone.
 
 ## Update the Apps Script (copy and paste)
 The script files and manifest are in the [`apps-script`](apps-script/) folder of this repo:
-- [ThesisTracker.gs](apps-script/ThesisTracker.gs) · [raw](https://raw.githubusercontent.com/Feliciety02/ThesisTracker/main/apps-script/ThesisTracker.gs)
-- [WebApp.gs](apps-script/WebApp.gs) · [raw](https://raw.githubusercontent.com/Feliciety02/ThesisTracker/main/apps-script/WebApp.gs)
+- [ThesisTracker.gs](apps-script/ThesisTracker.gs) · [raw](https://raw.githubusercontent.com/Feliciety02/Thesis-Tracker-Mobile/main/apps-script/ThesisTracker.gs)
+- [WebApp.gs](apps-script/WebApp.gs) · [raw](https://raw.githubusercontent.com/Feliciety02/Thesis-Tracker-Mobile/main/apps-script/WebApp.gs)
 - [appsscript.json](apps-script/appsscript.json) · grants full Drive access needed to create photo files
 
 Use the local files above when working from this checkout; the GitHub `main` raw links may be older than local changes.
@@ -150,7 +150,7 @@ If the older deployed script says `Cannot call SpreadsheetApp.getUi() from this 
 4. After about a minute, the app is live at `https://<your-username>.github.io/<repo-name>/`.
 
 ### 3. Install on phones
-- **Android native app (named Gallery photos and background Drive upload):** download the [signed 1.0.26 team APK](Banana-Thesis-Tracker-Android.apk). Its launcher icon matches the green leaf used by the website. Installing the website from Chrome does not give it native Gallery access or Android background uploads.
+- **Android native app (named Gallery photos and background Drive upload):** download the [signed 1.0.28 team APK](Banana-Thesis-Tracker-Android.apk). Its launcher icon matches the green leaf used by the website. Installing the website from Chrome does not give it native Gallery access or Android background uploads.
 - **Android web app (Chrome):** open the link, then tap **Install** on the first screen, or on the Home card that shows until the app is installed (or ⋮ → Install app).
 - **iPhone (Safari):** open the link, then Share → **Add to Home Screen**.
 - **Laptop (Chrome / Edge):** use the install icon in the address bar.
@@ -167,7 +167,7 @@ The Android app uses an in-app viewfinder for consecutive sample shots. It write
 4. Install `android/app/build/outputs/apk/debug/app-debug.apk` on the phone for local development only. Share the signed team APK linked above instead.
 5. Sign in again inside the Android app. The Chrome-installed web app has separate local storage, so finish syncing its pending photos before switching.
 
-After a capture, look in Gallery → **Banana Thesis Tracker** for files such as `FA-001_01.jpg`. The app shows **Google Drive upload successful** only after the server confirms the save. If Wi-Fi or mobile data is unavailable, Android keeps a private upload copy and schedules a retry when a network returns, even when the app is closed. Android may delay background jobs during battery saving or after a force-stop; opening the app resumes the check. Do not clear app data while uploads are pending.
+After a capture, look in Gallery → **Banana Thesis Tracker** for files such as `FA-001_01.jpg`. The app shows **Google Drive upload successful** only after the server confirms the save. If Wi-Fi or mobile data is unavailable, Android keeps a private upload copy and schedules a retry when a network returns, even when the app is closed. A connection abort or timeout is temporary: leave the app installed and reconnect; the queue resumes automatically. Android may delay background jobs during battery saving or after a force-stop; opening the app resumes the check. Do not clear app data while uploads are pending.
 
 The signed team APK uses a different certificate from the older debug test APK. Android cannot update the debug installation in place. Let all pending photos finish uploading before uninstalling the debug app and installing the team APK. The release signing key is stored outside this repository in the owner's local AppData; keep a secure backup of it for future updates. The team APK is public to download, but only the configured accounts can sign in.
 
@@ -176,6 +176,7 @@ Only the team's six emails (two per member, listed in `accounts` in `ThesisTrack
 
 - **First time:** type your email → a 6-digit code is emailed to you → type the code and choose a password (8+ characters). Each email has its own password.
 - **After that:** you stay signed in on that phone until you tap your avatar → **Log out**.
+- **Slow sign-in:** if the request times out or the connection drops, the app says the password was not rejected. Check the connection and try again with the same password. A genuine wrong password is shown separately.
 - **Forgot password?** Tap it on the sign-in screen to get a new code.
 - **Locked out / lost access:** in the sheet, **Thesis Tracker → Reset someone's app password** signs that email out everywhere so they can set a new password.
 - To add or change emails, edit `accounts` in `CFG` at the top of `ThesisTracker.gs`, then deploy a new version.

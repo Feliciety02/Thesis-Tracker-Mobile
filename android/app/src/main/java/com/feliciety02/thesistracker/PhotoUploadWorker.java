@@ -1,6 +1,7 @@
 package com.feliciety02.thesistracker;
 
 import android.content.Context;
+import android.os.SystemClock;
 import androidx.annotation.NonNull;
 import androidx.work.BackoffPolicy;
 import androidx.work.Constraints;
@@ -12,10 +13,15 @@ import androidx.work.WorkerParameters;
 import androidx.work.WorkInfo;
 import androidx.work.WorkManager;
 import java.io.ByteArrayOutputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.InterruptedIOException;
+import java.net.ConnectException;
 import java.net.HttpURLConnection;
+import java.net.SocketException;
+import java.net.UnknownHostException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
@@ -72,18 +78,25 @@ public final class PhotoUploadWorker extends Worker {
         try {
             JSONObject job;
             Set<String> failed = new HashSet<>();
+            long started = SystemClock.elapsedRealtime();
             while (!isStopped() && (job = UploadStore.next(context, failed, owner)) != null) {
+                // WorkManager stops ordinary workers after about ten minutes. Yield before
+                // starting another large upload so the queue can resume cleanly next run.
+                if (SystemClock.elapsedRealtime() - started > TimeUnit.MINUTES.toMillis(7)) return Result.retry();
                 try {
+                    UploadStore.clearError(context, job);
                     if (job.optBoolean("firstCapture") && job.optString("date", "").matches("\\d{4}-\\d{2}-\\d{2}")) {
                         JSONArray dateArgs = new JSONArray();
                         dateArgs.put(job.getString("id"));
                         dateArgs.put("date");
                         dateArgs.put(job.getString("date"));
                         JSONObject dateResponse = postRequest(url, token, "updateSample", dateArgs);
+                        if (dateResponse.optBoolean("auth")) throw new SessionExpiredException();
                         if (!dateResponse.optBoolean("ok"))
                             throw new IOException(dateResponse.optString("error", "Could not save capture date"));
                     }
                     JSONObject response = post(url, token, job);
+                    if (response.optBoolean("auth")) throw new SessionExpiredException();
                     if (!response.optBoolean("ok"))
                         throw new IOException(response.optString("error", "Google Drive upload failed"));
                     UploadStore.complete(context, job, response.optJSONObject("data"));
@@ -91,14 +104,33 @@ public final class PhotoUploadWorker extends Worker {
                     UploadStore.markError(context, job, error.getMessage());
                     return Result.retry();
                 } catch (Exception error) {
+                    if (retryable(error)) return Result.retry();
                     UploadStore.markError(context, job, error.getMessage() == null ? error.toString() : error.getMessage());
+                    if (error instanceof SessionExpiredException) return Result.success(); // sign in again; keep the queue
                     failed.add(job.getString("key"));
                 }
             }
-            return isStopped() || !failed.isEmpty() ? Result.retry() : Result.success();
+            // Permanent errors stay in the queue for review, without retrying every
+            // minute or holding up newly queued work behind this worker.
+            return isStopped() ? Result.retry() : Result.success();
         } catch (Exception e) {
             return Result.retry();
         }
+    }
+
+    private static final class SessionExpiredException extends IOException {
+        SessionExpiredException() { super("Please sign in again to finish pending Google Drive uploads."); }
+    }
+
+    static boolean retryable(Exception error) {
+        if (error instanceof InterruptedIOException || error instanceof ConnectException ||
+            error instanceof UnknownHostException || error instanceof SocketException || error instanceof EOFException) return true;
+        String message = String.valueOf(error.getMessage()).toLowerCase(java.util.Locale.ROOT);
+        return message.contains("timeout") || message.contains("timed out") ||
+            message.contains("connection abort") || message.contains("connection reset") ||
+            message.contains("connection closed") || message.contains("network is unreachable") ||
+            message.contains("unable to resolve host") || message.contains("temporarily unavailable") ||
+            message.matches(".*http (?:408|429|5\\d\\d).*");
     }
 
     static JSONObject post(String apiUrl, String token, JSONObject job) throws Exception {
@@ -135,8 +167,8 @@ public final class PhotoUploadWorker extends Worker {
                 throw new IOException("Unexpected upload destination");
             HttpURLConnection connection = (HttpURLConnection) endpoint.openConnection();
             connection.setInstanceFollowRedirects(false);
-            connection.setConnectTimeout(20000);
-            connection.setReadTimeout(60000);
+            connection.setConnectTimeout(30000);
+            connection.setReadTimeout(120000);
             boolean submit = redirects == 0;
             try {
                 if (submit) {
