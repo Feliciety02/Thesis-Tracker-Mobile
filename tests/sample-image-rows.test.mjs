@@ -87,6 +87,21 @@ test('five image rows stay beneath their parent without overwriting the next sam
   assert.equal(sh.rows[10][2], '', 'a reserved label is not a captured leaf');
 });
 
+test('sample writes require the owner while the leader can record team results', () => {
+  const sh = fakeSheet();
+  sh.rows[3][0] = 'FA-001';
+  sh.rows[9][0] = 'RJ-001';
+  const app = contextFor(sh);
+  vm.runInContext("CURRENT_USER = 'Rho'", app);
+  assert.throws(() => app.createSample('FA-002', ''), /sample owner/);
+  assert.throws(() => app.updateSample('FA-001', 'notes', 'changed'), /sample owner/);
+  assert.throws(() => app.uploadPhoto('FA-001', 1, 'A'.repeat(120)), /sample owner/);
+  assert.equal(app.updateSample('RJ-001', 'notes', 'owner edit'), true);
+  vm.runInContext("CURRENT_USER = 'Fe Anne'", app);
+  assert.equal(app.updateSample('RJ-001', 'validated', 'Healthy'), true);
+  assert.throws(() => app.uploadPhoto('RJ-001', 1, 'A'.repeat(120)), /sample owner/);
+});
+
 test('the app reads parent samples and their individual image links without counting image rows as samples', () => {
   const sh = fakeSheet();
   sh.rows[3][0] = 'FA-001';

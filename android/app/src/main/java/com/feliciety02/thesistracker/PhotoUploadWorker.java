@@ -188,6 +188,7 @@ public final class PhotoUploadWorker extends Worker {
                 if (submit) {
                     connection.setRequestMethod("POST");
                     connection.setDoOutput(true);
+                    connection.setFixedLengthStreamingMode(body.length);
                     connection.setRequestProperty("Content-Type", "text/plain;charset=utf-8");
                     try (OutputStream out = connection.getOutputStream()) { out.write(body); }
                 }

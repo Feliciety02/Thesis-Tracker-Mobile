@@ -1121,7 +1121,7 @@ const TEAM = [
 ];
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
-  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+  set(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } },
   del(k) { try { localStorage.removeItem(k); } catch (e) {} },
 };
 function cached() { try { return JSON.parse(store.get(DATA_STORE) || 'null'); } catch (e) { return null; } }
@@ -1605,8 +1605,12 @@ async function authSubmit(form) {
   }
 }
 function finishSignIn(r) {
-  store.set(TOKEN_STORE, r.token);
-  store.set(ACCT_STORE, JSON.stringify({ user: r.user, email: r.email, name: r.name }));
+  const tokenSaved = store.set(TOKEN_STORE, r.token);
+  const accountSaved = store.set(ACCT_STORE, JSON.stringify({ user: r.user, email: r.email, name: r.name }));
+  if (!tokenSaved || !accountSaved) {
+    store.del(TOKEN_STORE); store.del(ACCT_STORE);
+    throw new Error('Could not save sign-in on this phone. Free storage and try again.');
+  }
   S.auth = null;
   initialLoadRetries = 0;
   signIn(r.user);
@@ -1670,7 +1674,10 @@ function persist() { if (S.data) store.set(DATA_STORE, JSON.stringify({ at: Date
 const OUTBOX = 'bt:outbox';
 let flushing = null;
 function outbox() { try { return JSON.parse(store.get(OUTBOX) || '[]'); } catch (e) { return []; } }
-function setOutbox(a) { store.set(OUTBOX, JSON.stringify(a)); updateSyncChip(); }
+function setOutbox(a) {
+  if (!store.set(OUTBOX, JSON.stringify(a))) throw new Error('Phone storage is full or unavailable.');
+  updateSyncChip();
+}
 function queueWrite(fn, args, meta) {
   const a = outbox();
   a.push(Object.assign({ fn, args, user: S.user, at: Date.now() }, meta || {}));
@@ -1758,7 +1765,8 @@ function flushOutbox(force) {
       if (job.fn === 'deleteSupply') await finishSupplyPhoneDeletion(job.args[0]);
     }
     if (synced) { persist(); toast('Synced ' + synced + ' change' + (synced > 1 ? 's' : '') + '', 1800); }
-  })().finally(() => { flushing = null; updateSyncChip(); });
+  })().catch(() => { toast('Phone storage is unavailable. Free space before syncing more changes.', 6000, true); })
+    .finally(() => { flushing = null; updateSyncChip(); });
   return flushing;
 }
 
@@ -1769,9 +1777,20 @@ function createRequestId() {
 }
 function save(fn, args, apply, onQueued) {
   S.localWriteSeq = (S.localWriteSeq || 0) + 1;
+  const before = (apply || onQueued) && S.data ? JSON.stringify(S.data) : '';
   if (apply) apply();
   if (apply) { persist(); renderWhenIdle(); }
-  const queue = () => { const meta = onQueued ? onQueued() : null; queueWrite(fn, args, meta); persist(); renderWhenIdle(); return null; };
+  const queue = () => {
+    try {
+      const meta = onQueued ? onQueued() : null;
+      queueWrite(fn, args, meta); persist(); renderWhenIdle();
+      return null;
+    } catch (e) {
+      if (before) { S.data = JSON.parse(before); persist(); renderWhenIdle(); }
+      toast('Could not save on this phone. Free storage and try again.', 6000, true);
+      return SAVE_FAILED;
+    }
+  };
   if (!DEMO && (!navigator.onLine || outbox().length)) return Promise.resolve(queue());   // keep changes in order
   toast('Saving…');
   return call(fn, ...args).then(d => {
@@ -2518,6 +2537,8 @@ function paperCard() {
 
 function sampleCard(x) {
   const cls = S.data.lists.classes, owner = ownerOf(x.id), m = TEAM.find(t => t.tab === owner) || { color: 'var(--muted)' };
+  const canEdit = owner === S.user || S.user === 'Fe Anne';
+  const canCapture = owner === S.user;
   const n = takenSet(x).size, q = queuedFor(x.id), st = stageOf(x), f = freshness(x);
   const phoneCopies = IS_PHONE ? Math.max((S.phonePending[x.id] || []).length, shotsFor(x.id).length) : 0;
   const at = 'data-id="' + esc(x.id) + '"';
@@ -2526,11 +2547,11 @@ function sampleCard(x) {
   const key = 'smp_' + x.id, open = !!S.open[key];
   const deadline = ['today', 'tomorrow'].includes(f.st) ? freshPill(x) : '';
   const action = {
-    photos: IS_PHONE ? '<button class="btn act" data-action="cam" ' + at + '>' + ic('photo_camera') + ' Take photos · ' + Math.min(n, MAX_ANGLES) + ' of ' + MAX_ANGLES + '</button>'
+    photos: IS_PHONE && canCapture ? '<button class="btn act" data-action="cam" ' + at + '>' + ic('photo_camera') + ' Take photos · ' + Math.min(n, MAX_ANGLES) + ' of ' + MAX_ANGLES + '</button>'
                      : '<span class="small muted">' + n + ' of ' + MAX_ANGLES + ' photos · finish on the phone</span>',
-    bag: '<button class="btn act" data-action="smpBag" ' + at + '>' + ic('check') + ' Bagged & labeled</button>',
+    bag: canEdit ? '<button class="btn act" data-action="smpBag" ' + at + '>' + ic('check') + ' Bagged & labeled</button>' : '<span class="small muted">Waiting for the sample owner</span>',
     send: '<span class="tagp ok">Ready for team hand-over</span>',
-    waiting: '<label class="act-sel">RCPC result' + sel(x.validated, 'validated', 'Choose…') + '</label>',
+    waiting: canEdit ? '<label class="act-sel">RCPC result' + sel(x.validated, 'validated', 'Choose…') + '</label>' : '<span class="small muted">RCPC result pending</span>',
     done: '<span class="tagp ok">' + ic('check_circle') + ' RCPC: ' + esc(x.validated) + '</span>',
     unrecorded: '<span class="small muted">No hand-over date recorded · due ' + esc(fmt(f.due).replace(/^\w+, /, '')) + '</span>',
     invalid: '<span class="small muted">Sent ' + esc(fmt(x.submitted).replace(/^\w+, /, '')) + ', after the next-day deadline</span>',
@@ -2541,8 +2562,8 @@ function sampleCard(x) {
     const status = { prep: 'Preparing', up: 'Uploading', q: 'Waiting for Drive', done: 'Saved to Drive' }[state] || 'Not taken';
     const image = (x.images || []).find(p => p.angle === i + 1);
     const taken = image && image.capturedAt ? new Date(image.capturedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
-    const tag = IS_PHONE ? 'button' : 'span';
-    return '<div class="sample-photo-row"><' + tag + ' class="sample-photo-target"' + (IS_PHONE ? ' type="button" data-action="camAngle" data-id="' + esc(x.id) + '" data-angle="' + (i + 1) + '" aria-label="' + (state ? 'Retake ' : 'Take ') + esc(name) + '"' : '') + '>' + (i + 1) + '. ' + esc(name) + (taken ? '<small>' + esc(taken) + '</small>' : '') + '</' + tag + '><span class="muted">' + esc(status) + '</span>' +
+    const tag = IS_PHONE && canCapture ? 'button' : 'span';
+    return '<div class="sample-photo-row"><' + tag + ' class="sample-photo-target"' + (IS_PHONE && canCapture ? ' type="button" data-action="camAngle" data-id="' + esc(x.id) + '" data-angle="' + (i + 1) + '" aria-label="' + (state ? 'Retake ' : 'Take ') + esc(name) + '"' : '') + '>' + (i + 1) + '. ' + esc(name) + (taken ? '<small>' + esc(taken) + '</small>' : '') + '</' + tag + '><span class="muted">' + esc(status) + '</span>' +
       (image && image.url ? '<a class="btn ghost compact" href="' + esc(image.url) + '" target="_blank" rel="noopener" aria-label="Open ' + esc(name) + ' in Drive">Open</a>' : '') +
       (owner === S.user && image && image.url && state === 'done' ? '<button class="linkbtn" style="color:var(--red)" data-action="delPhoto" data-id="' + esc(x.id) + '" data-angle="' + (i + 1) + '" aria-label="Delete ' + esc(name) + ' photo">' + ic('delete') + '</button>' : '') + '</div>';
   }).join('');
@@ -2623,6 +2644,7 @@ function galleryHtml(rows) {
 /* ---------- camera (inside DA RCPC Samples): five photos per leaf, then label reminder ---------- */
 function openCam(id, stage) {
   if (!IS_PHONE) { toast('Take photos with the app on your phone.', 2500); return; }
+  if (ownerOf(id) !== S.user) { toast('Sign in as the sample owner to take photos.', 3000, true); return; }
   Object.keys(S.previews).filter(k => !k.startsWith(id + '_')).forEach(forgetPhotoPreview);
   S.cam = { id: id, stage: stage || 'shoot', more: false };
   Object.keys(S.shots).forEach(k => { if (S.shots[k].id !== id && S.shots[k].id.indexOf('rcpt_') !== 0) delete S.shots[k]; });   // one leaf's photos in memory at a time
@@ -3364,6 +3386,11 @@ async function flushPhotos() {
 
 async function acceptShot(job, thumb, blob) {
   job.owner = job.owner || ownerOf(job.id);
+  const sample = sampleById(job.id);
+  const alreadySaved = sample && ((sample.angles || []).length ||
+    Object.keys(S.queued).concat(Object.keys(S.waiting), Object.keys(S.uploading)).some(k => k.startsWith(job.id + '_')));
+  job.firstCapture = !!sample && !alreadySaved;
+  job.date = sample && sample.date && alreadySaved ? sample.date : localDay(new Date(job.at || Date.now()));
   if (blob && nativeCameraAvailable()) {
     await window.ThesisBackgroundUpload.saveNamedPhoto(fname(job.id, job.angle), job.b64);
     blob = null; // the native Gallery now owns the named phone copy
@@ -3387,11 +3414,8 @@ async function acceptShot(job, thumb, blob) {
     toast(fname(job.id, job.angle) + ' cannot upload offline. Free phone space and retake it.', 7000, true);
     delete S.thumbs[job.id + '_' + job.angle]; renderCam(); return;
   }
-  const sample = sampleById(job.id);
-  const alreadySaved = sample && ((sample.angles || []).length || Object.keys(S.queued).concat(Object.keys(S.waiting), Object.keys(S.uploading)).some(k => k.startsWith(job.id + '_')));
-  job.firstCapture = !!sample && !alreadySaved;
   if (sample && (!sample.date || !alreadySaved)) {
-    sample.date = localDay(new Date(job.at || Date.now()));
+    sample.date = job.date;
     persist();
     if (!DEMO) {
       const writes = outbox();
@@ -3408,7 +3432,6 @@ async function acceptShot(job, thumb, blob) {
     }
   }
   if (job.firstCapture && !DEMO) flushOutbox();
-  job.date = sample ? sample.date : localDay(new Date(job.at || Date.now()));
   S.thumbs[job.id + '_' + job.angle] = thumb;
   if (navigator.vibrate) navigator.vibrate(40);       // little buzz = photo kept
   if (queued) await queuePhotoJob(job);
@@ -3460,7 +3483,8 @@ async function saveExpenseChanges(row, details) {
     const jobs = changes.slice(i).map(([field, value], offset) => ({ fn: 'updateSupply',
       args: [row, field, value, changes[0][0] === 'item' && i + offset > 0 ? details.item : item.item],
       user: S.user, at: Date.now() }));
-    setOutbox(outbox().concat(jobs));
+    try { setOutbox(outbox().concat(jobs)); }
+    catch (e) { return fail(e); }
     return finish(true);
   };
   const fail = e => {
@@ -3823,18 +3847,24 @@ document.addEventListener('click', e => {
   if (a === 'toastClose') { hideToast(); return; }
   if (a === 'retryWrite') {
     const pending = outbox();
-    if (pending.length) { delete pending[0].error; setOutbox(pending); flushOutbox(true); }
+    if (pending.length) {
+      delete pending[0].error;
+      try { setOutbox(pending); flushOutbox(true); }
+      catch (e) { toast('Phone storage is unavailable. Free space and try again.', 5000, true); }
+    }
     return;
   }
   if (a === 'discardWrite') {
     if (flushing || !outbox().length || !confirm('Discard this unsynced change from this phone? It will not reach the tracker sheet.')) return;
     const pending = outbox(), job = pending.shift();
+    try { setOutbox(pending); }
+    catch (e) { toast('Phone storage is unavailable. Free space and try again.', 5000, true); return; }
     if (job.tempId && S.data) {
       if (job.fn === 'addSupply') S.data.supplies = S.data.supplies.filter(x => x.tempId !== job.tempId);
       if (job.fn === 'addTask') { const m = member(job.tab); if (m) m.tasks = m.tasks.filter(x => x.tempId !== job.tempId); }
       if (job.fn === 'addRecord') S.data.records[job.kind] = recs(job.kind).filter(x => x.tempId !== job.tempId);
     }
-    setOutbox(pending); persist(); render();
+    persist(); render();
     if (!pending.length) load(true);
     else flushOutbox();
     return;
@@ -3988,7 +4018,7 @@ document.addEventListener('click', e => {
   else if (a === 'gallery') { S.gallery = v === '1'; if (S.gallery) { S.photoIndex = null; loadPhotoIndex(); } render(); }
   else if (a === 'newSample') { newSample(); }
   else if (a === 'cam') { openCam(el.dataset.id); }
-  else if (a === 'camAngle') { openCam(el.dataset.id); S.cam.target = +el.dataset.angle; renderCam(); if (angleState(sampleById(el.dataset.id), S.cam.target)) openPhotoPreview(S.cam.target); }
+  else if (a === 'camAngle') { openCam(el.dataset.id); if (!S.cam || S.cam.id !== el.dataset.id) return; S.cam.target = +el.dataset.angle; renderCam(); if (angleState(sampleById(el.dataset.id), S.cam.target)) openPhotoPreview(S.cam.target); }
   else if (a === 'camGallery') { openCam(el.dataset.id, 'finish'); }
   else if (a === 'camPreview' || a === 'previewAngle') { openPhotoPreview(+v); }
   else if (a === 'previewClose') { closePhotoPreview(); }
@@ -4154,6 +4184,7 @@ document.addEventListener('change', e => {
     save('updateRevision', [row, field, val], () => { S.data.revisions.find(r => r.row === row)[field] = val; });
   } else if (k === 'sample') {
     const id = el.dataset.id;
+    if (ownerOf(id) !== S.user && S.user !== 'Fe Anne') { toast('Sign in as the sample owner to edit it.', 3000, true); render(); return; }
     save('updateSample', [id, field, val], () => { sampleById(id)[field] = val; });
   } else if (k === 'supply') {
     const item = S.data.supplies.find(s => s.row === row);

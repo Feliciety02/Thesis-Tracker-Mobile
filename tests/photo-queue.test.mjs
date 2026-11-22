@@ -42,3 +42,25 @@ test('offline photo survives the gallery database upgrade and can be retried', a
   await queue.del('FA-001_1');
   assert.equal((await queue.all()).length, 0);
 });
+
+test('the durable photo job includes capture date before native enqueue', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const start = html.indexOf('async function acceptShot(job, thumb, blob) {');
+  const end = html.indexOf('async function processSamplePhoto(', start);
+  assert.ok(start >= 0 && end > start);
+  const sample = { id: 'FA-001', date: '', site: '', angles: [] };
+  const state = { user: 'Fe Anne', data: { samples: [sample] }, queued: {}, waiting: {},
+    uploading: {}, phonePending: {}, thumbs: {} };
+  let stored;
+  const acceptShot = runInNewContext(html.slice(start, end) + '\nacceptShot;', {
+    S: state, ownerOf: () => 'Fe Anne', sampleById: () => sample,
+    nativeCameraAvailable: () => false, PhotoQ: { put: async (_, job) => { stored = structuredClone(job); } },
+    navigator: { onLine: false }, DEMO: true, localDay: d => d.toISOString().slice(0, 10),
+    persist: () => {}, captureGps: () => {}, queuePhotoJob: async () => {}, queueUpload: () => {},
+    saveCamState: () => {}, renderCam: () => {}, toast: () => {}, fname: (id, angle) => `${id}_0${angle}.jpg`,
+  });
+  await acceptShot({ id: 'FA-001', angle: 1, b64: 'photo-data', at: Date.parse('2026-11-23T12:00:00Z') }, '', null);
+  assert.equal(stored.firstCapture, true);
+  assert.equal(stored.date, '2026-11-23');
+  assert.equal(sample.date, stored.date);
+});

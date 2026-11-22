@@ -184,7 +184,7 @@ function parseLink_(formula, value) {
 }
 function withLock_(fn) {
   const lock = LockService.getScriptLock();
-  lock.waitLock(15000);
+  lock.waitLock(30000);
   try { return fn(); } finally { lock.releaseLock(); }
 }
 /** A retry after a lost response must return the original row instead of adding a duplicate. */
@@ -457,6 +457,11 @@ function requireSampleOwner_(id) {
   const owner = CFG.members.find(m => id.indexOf(m.prefix + '-') === 0);
   if (CURRENT_USER && (!owner || owner.tab !== CURRENT_USER)) throw new Error('Only the member who owns this sample can delete it or its photos.');
 }
+function requireSampleEditor_(id, allowLeader) {
+  const owner = CFG.members.find(m => id.indexOf(m.prefix + '-') === 0);
+  if (CURRENT_USER && (!owner || owner.tab !== CURRENT_USER && !(allowLeader && CURRENT_USER === 'Fe Anne')))
+    throw new Error('Sign in as the sample owner to change this sample.');
+}
 function emptySampleSlot_(values) {
   // Blank template rows can contain unchecked boxes and the old Match? formula.
   return [0, 1, 2, 3, 4, 5, 6, 9, 10, 12, 13, 14, 15].every(i => values[i] === '' || values[i] == null) &&
@@ -494,6 +499,10 @@ function ensureSampleImageRows_(sh, id, parentHint) {
 /** Adds a new sample row for a label the app handed out (FA-004, RJ-012, …). Safe to call twice. */
 function createSample(id, date) {
   id = String(id || '').toUpperCase();
+  requireSampleEditor_(id, false);
+  return createSampleUnchecked_(id, date);
+}
+function createSampleUnchecked_(id, date) {
   const m = CFG.members.find(x => id.indexOf(x.prefix + '-') === 0);
   if (!m || !/^[A-Z]{2}-\d{3,}$/.test(id)) throw new Error('Bad sample label: ' + id);
   return withLock_(() => {
@@ -558,11 +567,12 @@ function deleteSample(id) {
 function updateSample(id, field, value) {
   id = String(id || '').toUpperCase();
   if (!SAMPLE_ID_RE.test(id)) throw new Error('Bad sample label: ' + id);
+  requireSampleEditor_(id, true);
   const col = { disease: 2, date: 3, site: 4, cotton: 8, bagged: 9, submitted: 10, validated: 11, notes: 13, gps: 16 }[field];
   if (!col) throw new Error('Field not editable: ' + field);
   if (field === 'submitted' && CURRENT_USER && CURRENT_USER !== 'Fe Anne') throw new Error('Fe Anne handles the RCPC hand-over for the team.');
   if (field === 'date' || field === 'submitted') value = parseDate_(value);
-  createSample(id);                       // in case it was started offline on another path
+  createSampleUnchecked_(id);             // the leader can repair another member's existing sample
   return withLock_(() => {
     const sh = sheet_('DA RCPC Samples');
     sh.getRange(sampleRow_(sh, id), col).setValue(value);
@@ -807,10 +817,13 @@ function migrateLegacyPhotos_() {
  */
 function uploadPhoto(id, angle, b64, date, capturedAt) {
   id = String(id || '').toUpperCase(); angle = Number(angle);
+  requireSampleEditor_(id, false);
   if (!(angle >= 1 && angle <= CFG.photoAngles.length)) throw new Error('Angle must be 1–' + CFG.photoAngles.length);
   if (!b64 || String(b64).length < 100) throw new Error('Empty photo');
   const sh = sheet_('DA RCPC Samples');
-  createSample(id, date);                 // a sample started offline gets its row here if needed
+  // Existing samples need only the upload lock. A second create lock for every
+  // photo needlessly queues other phones behind the same script-wide lock.
+  if (sampleRow_(sh, id) < 4) createSample(id, date);
 
   const timestamp = Number(capturedAt);
   const hasTimestamp = timestamp > 946684800000 && timestamp < Date.now() + 86400000;
@@ -820,6 +833,7 @@ function uploadPhoto(id, angle, b64, date, capturedAt) {
   return withLock_(() => {
     const row = sampleRow_(sh, id);
     if (row < 4) throw new Error('Sample not found: ' + id);
+    ensureSampleImageRows_(sh, id, row);
     const imageRow = row + angle;
     const dateRange = sh.getRange(imageRow, 3);
     const linkRange = sh.getRange(imageRow, 14);

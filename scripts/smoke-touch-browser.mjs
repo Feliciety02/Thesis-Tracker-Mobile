@@ -136,6 +136,8 @@ try {
     await page.locator('[data-action="showCheckDates"]').tap();
     assert.equal(await page.evaluate(() => S.view), 'samples');
     assert.equal(await page.locator('[data-action="smpStage"][data-v="unrecorded"]').getAttribute('aria-selected'), 'true');
+    assert.equal(await page.locator('[data-action="cam"][data-id="RJ-900"]').count(), 0);
+    assert.equal(await page.locator('[data-action="camAngle"][data-id="RJ-900"]').count(), 0);
     assert.equal(await page.locator('[data-action="smpStage"][data-v="unrecorded"]').count(), 1);
     assert.equal(await page.locator('[data-action="smpStage"][data-v="invalid"]').count(), 0);
     await page.locator('[data-action="openSheet"]').tap();
